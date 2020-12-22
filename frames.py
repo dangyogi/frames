@@ -1,4 +1,4 @@
-# attr_soup.py
+# frames.py
 
 from itertools import groupby, chain
 from operator import itemgetter
@@ -89,52 +89,7 @@ class version:
             - type
             - value
         '''
-        #print("get_raw_frame", frame_id)
-        self.cursor.execute(f"""SELECT name, value_order, slot_id, version_id
-                                  FROM Slot
-                                       INNER JOIN Slot_versions USING (slot_id)
-                                 WHERE frame_id = ?
-                                 ORDER BY name, value_order, slot_id;""",
-                            [frame_id])
-        matching_slot_ids = []
-        for (name, value_order), slots in groupby(self.cursor,
-                                                  key=itemgetter(0, 1)):
-            matching_slots = []
-            for slot_id, versions in groupby(slots, key=itemgetter(2)):
-                version_ids = frozenset(v[3] for v in versions)
-                if version_ids.issubset(self.required_versions):
-                    matching_slots.append((slot_id, version_ids))
-
-            #print("matching_slots", matching_slots)
-            if len(matching_slots) == 1:
-                matching_slot_ids.append(matching_slots[0][0])
-            else:
-                best_match = None
-                for slot_id, versions in matching_slots:
-                    #print("checking", slot_id, versions)
-                    for slot_id2, versions2 in matching_slots:
-                        if slot_id != slot_id2 and \
-                           not self.better_fit(slot_id, versions,
-                                               slot_id2, versions2):
-                            # nope, not this one!
-                            break
-                    else:
-                        if best_match is not None:
-                            # Conflict!
-                            raise AssertionError(
-                                    "Slot version conflict between "
-                                    f"{best_match[0]} and {slot_id}")
-                        else:
-                            best_match = (slot_id, versions)
-                if best_match is not None:
-                    matching_slot_ids.append(best_match[0])
-
-        self.cursor.execute(f"""
-                        SELECT *
-                          FROM Slot
-                         WHERE slot_id IN ({gen_template(matching_slot_ids)})
-                         ORDER BY name, value_order;""",
-                    matching_slot_ids)
+        selected_slots = self.select_slots_by_version("frame_id = ?", frame_id)
 
         def get_value(row):
             values = [row[col]
@@ -157,7 +112,76 @@ class version:
                      description=row['description'],
                      type=row['type'],
                      value=get_value(row))
-                for row in self.cursor}
+                for row in selected_slots}
+
+    def select_slots_by_version(self, where_exp, *sql_params):
+        r'''Figures slots matching where_exp/sql_params that are best match to
+        my versions.
+
+        Returns iterator generating selected slots.  This is the database
+        cursor, so you must exhaust this before using the cursor for something
+        else.
+
+        Slots are generated ordered by frame_id, name, value_order.
+        '''
+        self.cursor.execute(f"""
+                        SELECT frame_id, name, value_order, slot_id, version_id
+                          FROM Slot
+                               INNER JOIN Slot_versions USING (slot_id)
+                         WHERE {where_exp}
+                         ORDER BY frame_id, name, value_order, slot_id;""",
+                      sql_params)
+
+        matching_slot_ids = self.select_slot_ids_by_version(self.cursor)
+
+        self.cursor.execute(f"""
+                        SELECT *
+                          FROM Slot
+                         WHERE slot_id IN ({gen_template(matching_slot_ids)})
+                         ORDER BY frame_id, name, value_order;""",
+                    matching_slot_ids)
+        return self.cursor
+
+    def select_slot_ids_by_version(self, raw_slot_rows):
+        r'''raw_slot_rows is (frame_id, name, value_order, slot_id, version_id)
+
+        raw_slots must be sorted by frame_id, name, value_order, slot_id.
+
+        Returns a list of selected slot_ids.
+        '''
+        matching_slot_ids = []
+        for (frame_id, name, value_order), slots \
+         in groupby(raw_slot_rows, key=itemgetter(0, 1, 2)):
+            matching_slots = []  # [(slot_id, version_ids_frozenset)]
+            for slot_id, versions in groupby(slots, key=itemgetter(3)):
+                version_ids = frozenset(v[4] for v in versions)
+                if version_ids.issubset(self.required_versions):
+                    matching_slots.append((slot_id, version_ids))
+
+            #print("matching_slots", matching_slots)
+            if len(matching_slots) == 1:
+                matching_slot_ids.append(matching_slots[0][0])
+            else:
+                best_match = None  # (slot_id, versions)
+                for slot_id, versions in matching_slots:
+                    #print("checking", slot_id, versions)
+                    for slot_id2, versions2 in matching_slots:
+                        if slot_id != slot_id2 and \
+                           not self.better_fit(slot_id, versions,
+                                               slot_id2, versions2):
+                            # nope, not this one!
+                            break
+                    else:
+                        if best_match is not None:
+                            # Conflict!
+                            raise AssertionError(
+                                    "Slot version conflict between "
+                                    f"{best_match[0]} and {slot_id}")
+                        else:
+                            best_match = (slot_id, versions)
+                if best_match is not None:
+                    matching_slot_ids.append(best_match[0])
+        return matching_slot_ids
 
     def better_fit(self, slot_id, versions, other_slot_id, other_versions):
         #print("better_fit", versions, other_versions)
