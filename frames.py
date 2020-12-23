@@ -1,29 +1,105 @@
 # frames.py
 
+import re
 from itertools import groupby, chain
 from operator import itemgetter
 
 
-def gen_template(l):
-    return ', '.join('?' * len(l))
+class db:
+    r'''Encapsulates the various database modules.
+
+    Provides a unified interface to the various forms of sql parameter passing.
+
+    This uses two forms of named sql params:
+        - :name  -- for a single value
+        - :*name -- for a sequence of values (using within parens in the SQL)
+          - example: WHERE some_col IN (:*values)
+
+    This executes all sql statements on the same cursor.
+
+    The only cursor method available is to treat the db as an iterator,
+    which iterates on the cursor.
+    '''
+    paramstyles = {'qmark': ('?', "pos"),
+                   'numeric': (':{}', "pos"),
+                   'named': (':{}', "named"),
+                   'format': ('%s', "pos"),
+                   'pyformat': ('%({})s', "named"),
+        }
+    sql_param_re = re.compile(r':([a-zA-Z][a-zA-Z0-9_]*)')
+    sql_param_list_re = re.compile(r':\*([a-zA-Z][a-zA-Z0-9_]*)')
+
+    def __init__(self, module, *conn_params, post_connect=None, **conn_kws):
+        self.module = module
+        self.conn = self.module.connect(*conn_params, **conn_kws)
+        if post_connect is not None:
+            post_connect(self.conn)
+        self.cursor = self.conn.cursor()
+        self.sql_param = self.paramstyles[self.module.paramstyle][0]
+        if self.paramstyles[self.module.paramstyle][1] == "pos":
+            self.execute = self.execute_pos
+        else:
+            self.execute = self.execute_named
+
+    def execute_named(self, sql, **params):
+        new_params = params.copy()
+        def repl_list_fn(match):
+            param_name = match.group(1)
+            param_list = new_params.pop(param_name)
+            ans = []
+            for i, x in enumerate(param_list, 1):
+                x_name = self.sql_param.format(f"param_name_{i}")
+                new_params[x_name] = x
+                ans.append(x_name)
+            return ', '.join(ans)
+        sql = self.sql_param_list_re.sub(repl_list_fn, sql)
+        def repl_fn(match):
+            return self.sql_param.format(match.group(1))
+        self.cursor.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
+
+    def execute_pos(self, sql, **params):
+        param_num = 1
+        new_params = []
+        def repl_list_fn(match):
+            nonlocal param_num
+            param_name = match.group(1)
+            param_list = params[param_name]
+            ans = []
+            for x in param_list:
+                x_name = self.sql_param.format(param_num)
+                new_params.append(x)
+                ans.append(x_name)
+                param_num += 1
+            return ', '.join(ans)
+        sql = self.sql_param_list_re.sub(repl_list_fn, sql)
+        def repl_fn(match):
+            nonlocal param_num
+            param_name = match.group(1)
+            new_params.append(params[param_name])
+            ans = self.sql_param.format(param_num)
+            param_num += 1
+            return ans
+        self.cursor.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
+
+    def __iter__(self):
+        return iter(self.cursor)
 
 
 class version:
-    def __init__(self, cursor, *version_names):
-        self.cursor = cursor
+    def __init__(self, db, *version_names):
+        self.db = db
         self.version_names = version_names
         self.lookup_version_ids()
         self.required_versions, self.required_map = \
           self.get_all_required_versions()
 
     def lookup_version_ids(self):
-        self.cursor.execute(f"""
-                        SELECT version_id, status FROM Version
-                         WHERE name IN ({gen_template(self.version_names)})""",
-                      self.version_names)
+        self.db.execute("""SELECT version_id, status FROM Version
+                            WHERE name IN (:*version_names)""",
+                        version_names=self.version_names)
         self.version_ids = []
         self.frozen = True
-        for row in self.cursor:
+        for row in self.db:
             self.version_ids.append(row[0])
             if row[1] == 'proposed':
                 self.frozen = False
@@ -33,26 +109,25 @@ class version:
 
         Returns ({required_version_id}, {version_id: set(required_version_ids)})
         '''
-        self.cursor.execute(f"""
-                          WITH RECURSIVE req(ver_id, req_ver_id) AS (
-                        SELECT version_id, required_version_id
-                          FROM version_requires
-                         WHERE version_id in ({gen_template(self.version_ids)})
-                      UNION ALL
-                        SELECT version_id, required_version_id
-                          FROM version_requires
-                               INNER JOIN req
-                         WHERE version_id == req_ver_id
-                      )
-     
-                      SELECT ver_id, req_ver_id FROM req
-                       ORDER BY ver_id;""",
-                    self.version_ids)
+        self.db.execute("""WITH RECURSIVE req(ver_id, req_ver_id) AS (
+                         SELECT version_id, required_version_id
+                           FROM version_requires
+                          WHERE version_id in (:*version_ids)
+                       UNION ALL
+                         SELECT version_id, required_version_id
+                           FROM version_requires
+                                INNER JOIN req
+                          WHERE version_id == req_ver_id
+                       )
+
+                       SELECT ver_id, req_ver_id FROM req
+                        ORDER BY ver_id;""",
+                    version_ids=self.version_ids)
         required_map = {version_id: set(req_ver_id
                                         for ver_id, req_ver_id
                                          in required_versions)
                         for version_id, required_versions
-                         in groupby(self.cursor, key=itemgetter(0))}
+                         in groupby(self.db, key=itemgetter(0))}
         #print("required_map", required_map)
         def fill_req(req_versions, remaining_req_versions):
             for req_ver in remaining_req_versions:
@@ -89,7 +164,8 @@ class version:
             - type
             - value
         '''
-        selected_slots = self.select_slots_by_version("frame_id = ?", frame_id)
+        selected_slots = self.select_slots_by_version("frame_id = :frame_id",
+                                                      frame_id=frame_id)
 
         def get_value(row):
             values = [row[col]
@@ -114,7 +190,7 @@ class version:
                      value=get_value(row))
                 for row in selected_slots}
 
-    def select_slots_by_version(self, where_exp, *sql_params):
+    def select_slots_by_version(self, where_exp, **sql_params):
         r'''Figures slots matching where_exp/sql_params that are best match to
         my versions.
 
@@ -124,23 +200,22 @@ class version:
 
         Slots are generated ordered by frame_id, name, value_order.
         '''
-        self.cursor.execute(f"""
+        self.db.execute(f"""
                         SELECT frame_id, name, value_order, slot_id, version_id
                           FROM Slot
                                INNER JOIN Slot_versions USING (slot_id)
                          WHERE {where_exp}
                          ORDER BY frame_id, name, value_order, slot_id;""",
-                      sql_params)
+                        **sql_params)
 
-        matching_slot_ids = self.select_slot_ids_by_version(self.cursor)
+        matching_slot_ids = self.select_slot_ids_by_version(self.db)
 
-        self.cursor.execute(f"""
-                        SELECT *
-                          FROM Slot
-                         WHERE slot_id IN ({gen_template(matching_slot_ids)})
-                         ORDER BY frame_id, name, value_order;""",
-                    matching_slot_ids)
-        return self.cursor
+        self.db.execute("""SELECT *
+                             FROM Slot
+                            WHERE slot_id IN (:*slot_ids)
+                            ORDER BY frame_id, name, value_order;""",
+                        slot_ids=matching_slot_ids)
+        return self.db
 
     def select_slot_ids_by_version(self, raw_slot_rows):
         r'''raw_slot_rows is (frame_id, name, value_order, slot_id, version_id)
@@ -237,13 +312,16 @@ class version:
                 del new_frame[key]
         return new_frame
 
-    def get_frame(self, frame_id):
+    def get_frame(self, frame_id, format_slots=True):
         r'''Returns a frame object.
 
         Includes inherited slots.
+
+        Reads in all sub-frames.
         '''
         raw_frame = self.get_raw_frame(frame_id)
-        return frame(frame_id, self, self.with_inherited_slots(raw_frame))
+        return frame(frame_id, self, self.with_inherited_slots(raw_frame),
+                     format_slots=format_slots)
 
 
 def derive(derived, base):
@@ -277,7 +355,7 @@ class frame:
     some_frame.get_raw_slot(slot_name)
     some_frame.get_slot_names() -> iterable of slot_names
     '''
-    def __init__(self, frame_id, version_obj, raw_frame):
+    def __init__(self, frame_id, version_obj, raw_frame, format_slots=True):
         #print("frame", frame_id)
         self.frame_id = frame_id
         self.version_obj = version_obj
@@ -296,6 +374,9 @@ class frame:
                                              chain([first_slot],
                                                    (item for key, item
                                                     in slots_by_name)))
+        self.fill_frame()
+        if format_slots:
+            self.format_slots()
     
     def __repr__(self):
         if hasattr(self, 'name'):
@@ -380,8 +461,7 @@ class frame:
                     #print("index", i, raw_slot)
                     if raw_slot['type'] == 'frame':
                         sub_frame = \
-                          self.version_obj.get_frame(raw_slot['value'])
-                        sub_frame.fill_frame()
+                          self.version_obj.get_frame(raw_slot['value'], False)
                         #print("sub_frame ", end='')
                         #sub_frame.print()
                         if getattr(sub_frame, 'isa') == 'splice':
@@ -395,8 +475,7 @@ class frame:
                 #print("final slot_list", slot)
             elif slot['type'] == 'frame':
                 #print("not slot_list")
-                sub_frame = self.version_obj.get_frame(slot['value'])
-                sub_frame.fill_frame()
+                sub_frame = self.version_obj.get_frame(slot['value'], False)
                 if getattr(sub_frame, 'isa') == 'splice':
                     raise AssertionError(
                             f"slot_id {slot['slot_id']} with null value_order "
@@ -525,11 +604,11 @@ if __name__ == "__main__":
     import sys
     import sqlite3
 
-    conn = sqlite3.connect("test.db")
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    def add_row_factory(conn):
+        conn.row_factory = sqlite3.Row
+    db_obj = db(sqlite3, "test.db", post_connect=add_row_factory)
 
-    version_obj = version(cursor, *sys.argv[2:])
+    version_obj = version(db_obj, *sys.argv[2:])
 
     #print("version_ids", version_obj.version_ids)
     #print("required_versions", version_obj.required_versions)
@@ -546,7 +625,5 @@ if __name__ == "__main__":
     #print_slots(version_obj.with_inherited_slots(raw_frame))
 
     the_frame = version_obj.get_frame(int(sys.argv[1]))
-    the_frame.fill_frame()
-    the_frame.format_slots()
     the_frame.dump()
 
