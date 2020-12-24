@@ -3,6 +3,7 @@
 import re
 from itertools import groupby, chain
 from operator import itemgetter
+from collections import defaultdict
 
 
 class db:
@@ -12,8 +13,9 @@ class db:
 
     This uses two forms of named sql params:
         - :name  -- for a single value
-        - :*name -- for a sequence of values (using within parens in the SQL)
-          - example: WHERE some_col IN (:*values)
+        - ::name -- for an iterable of values (used within parens in the SQL)
+          - example: ... WHERE some_col IN (::values) ...
+            with the sql_param: values=[1, 2, 3]
 
     This executes all sql statements on the same cursor.
 
@@ -27,7 +29,7 @@ class db:
                    'pyformat': ('%({})s', "named"),
         }
     sql_param_re = re.compile(r':([a-zA-Z][a-zA-Z0-9_]*)')
-    sql_param_list_re = re.compile(r':\*([a-zA-Z][a-zA-Z0-9_]*)')
+    sql_param_list_re = re.compile(r'::([a-zA-Z][a-zA-Z0-9_]*)')
 
     def __init__(self, module, *conn_params, post_connect=None, **conn_kws):
         self.module = module
@@ -41,8 +43,11 @@ class db:
         else:
             self.execute = self.execute_named
 
-    def execute_named(self, sql, **params):
-        new_params = params.copy()
+    def at_versions(self, *version_names):
+        return version(self, *version_names)
+
+    def execute_named(self, sql, **sql_params):
+        new_params = sql_params.copy()
         def repl_list_fn(match):
             param_name = match.group(1)
             param_list = new_params.pop(param_name)
@@ -57,13 +62,13 @@ class db:
             return self.sql_param.format(match.group(1))
         self.cursor.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
 
-    def execute_pos(self, sql, **params):
+    def execute_pos(self, sql, **sql_params):
         param_num = 1
         new_params = []
         def repl_list_fn(match):
             nonlocal param_num
             param_name = match.group(1)
-            param_list = params[param_name]
+            param_list = sql_params[param_name]
             ans = []
             for x in param_list:
                 x_name = self.sql_param.format(param_num)
@@ -75,7 +80,7 @@ class db:
         def repl_fn(match):
             nonlocal param_num
             param_name = match.group(1)
-            new_params.append(params[param_name])
+            new_params.append(sql_params[param_name])
             ans = self.sql_param.format(param_num)
             param_num += 1
             return ans
@@ -95,7 +100,7 @@ class version:
 
     def lookup_version_ids(self):
         self.db.execute("""SELECT version_id, status FROM Version
-                            WHERE name IN (:*version_names)""",
+                            WHERE name IN (::version_names)""",
                         version_names=self.version_names)
         self.version_ids = []
         self.frozen = True
@@ -112,7 +117,7 @@ class version:
         self.db.execute("""WITH RECURSIVE req(ver_id, req_ver_id) AS (
                          SELECT version_id, required_version_id
                            FROM version_requires
-                          WHERE version_id in (:*version_ids)
+                          WHERE version_id in (::version_ids)
                        UNION ALL
                          SELECT version_id, required_version_id
                            FROM version_requires
@@ -146,6 +151,41 @@ class version:
 
         return all_required, required_map
 
+    def frame_ids_with_slots(self, **slots):
+        r'''Searches for all frames that have all of the indicated slots.
+
+        Only does == matches.
+
+        Returns a set of frame_ids.
+        '''
+        slot_names = frozenset(slots.keys())
+        slot_names_with_ako = slot_names.union(['ako'])
+        slots_found = self.select_slots_by_version(
+                        "name IN (::slot_names_with_ako)",
+                        slot_names_with_ako=slot_names_with_ako)
+
+        # {base_id: {derived_id}}
+        derived_map = defaultdict(set)
+        for (frame_id, name, _), slot in slots_found.items():
+            if name == 'ako':
+                derived_map[slot['value']].add(frame_id)
+
+        def frames_with_slot(slot_name, value):
+            for (frame_id, name, value_order), slot in slots_found.items():
+                if name == slot_name and value in (slot['value'], '*'):
+                    yield frame_id
+                    yield from spew_derived(frame_id, name, value_order)
+
+        def spew_derived(frame_id, name, value_order):
+            for d in derived_map[frame_id]:
+                if (d, name, value_order) not in slots_found:
+                    yield d
+                    yield from spew_derived(d, name, value_order)
+
+        found = [frozenset(frames_with_slot(slot_name, value))
+                 for slot_name, value in slots.items()]
+        return found[0].intersection(*found[1:])
+
     def get_raw_frame(self, frame_id):
         r'''Reads one frame from the database.
         
@@ -153,7 +193,7 @@ class version:
 
         Does not include inherited slots.
         
-        Returns {(name, value_order): slot}
+        Returns {(frame_id, name, value_order): slot}
 
         Where slot is dict with the following keys:
             - frame_id
@@ -164,37 +204,14 @@ class version:
             - type
             - value
         '''
-        selected_slots = self.select_slots_by_version("frame_id = :frame_id",
-                                                      frame_id=frame_id)
-
-        def get_value(row):
-            values = [row[col]
-                      for col in ('text_value', 'int_value', 'real_value',
-                                  'boolean_value', 'date_value', 'time_value',
-                                  'time_tz_value', 'timestamp_value',
-                                  'timestamp_tz_value', 'interval_value')
-                      if row[col] is not None]
-            if not values:
-                return None
-            assert len(values) == 1, \
-                   f"multiple type values set on frame {frame_id}!"
-            return values[0]
-
-        return {(row['name'], row['value_order']):
-                dict(frame_id=row['frame_id'],
-                     slot_id=row['slot_id'],
-                     name=row['name'],
-                     value_order=row['value_order'],
-                     description=row['description'],
-                     type=row['type'],
-                     value=get_value(row))
-                for row in selected_slots}
+        return self.select_slots_by_version("frame_id = :frame_id",
+                                            frame_id=frame_id)
 
     def select_slots_by_version(self, where_exp, **sql_params):
         r'''Figures slots matching where_exp/sql_params that are best match to
         my versions.
 
-        Returns iterator generating selected slots.  This is the database
+        Returns iterator generating selected slot rows.  This is the database
         cursor, so you must exhaust this before using the cursor for something
         else.
 
@@ -212,10 +229,32 @@ class version:
 
         self.db.execute("""SELECT *
                              FROM Slot
-                            WHERE slot_id IN (:*slot_ids)
+                            WHERE slot_id IN (::slot_ids)
                             ORDER BY frame_id, name, value_order;""",
                         slot_ids=matching_slot_ids)
-        return self.db
+
+        def get_value(row):
+            values = [row[col]
+                      for col in ('text_value', 'int_value', 'real_value',
+                                  'boolean_value', 'date_value', 'time_value',
+                                  'time_tz_value', 'timestamp_value',
+                                  'timestamp_tz_value', 'interval_value')
+                      if row[col] is not None]
+            if not values:
+                return None
+            assert len(values) == 1, \
+                   f"multiple type values set on frame {frame_id}!"
+            return values[0]
+
+        return {(row['frame_id'], row['name'], row['value_order']):
+                dict(frame_id=row['frame_id'],
+                     slot_id=row['slot_id'],
+                     name=row['name'],
+                     value_order=row['value_order'],
+                     description=row['description'],
+                     type=row['type'],
+                     value=get_value(row))
+                for row in self.db}
 
     def select_slot_ids_by_version(self, raw_slot_rows):
         r'''raw_slot_rows is (frame_id, name, value_order, slot_id, version_id)
@@ -296,16 +335,18 @@ class version:
         #print("better_fit ->", ans, "final")
         return ans
 
-    def with_inherited_slots(self, raw_frame):
+    def with_inherited_slots(self, frame_id, raw_frame):
         r'''Returns a new raw_frame that includes its inherited slots.
 
         Returns same structure as get_raw_frame.
         '''
         #print("with_inherited_slots", frame_id)
-        ako = raw_frame.get(('ako', None))
+        ako = raw_frame.get((frame_id, 'ako', None))
         if ako and ako['type'] == 'frame':
-            base_frame = self.get_raw_frame(ako['value'])
-            return derive(raw_frame, self.with_inherited_slots(base_frame))
+            base_frame_id = ako['value']
+            base_frame = self.get_raw_frame(base_frame_id)
+            return derive(raw_frame,
+                          self.with_inherited_slots(base_frame_id, base_frame))
         new_frame = raw_frame.copy()
         for key, slot in raw_frame.items():
             if slot['type'] == 'delete':
@@ -320,15 +361,23 @@ class version:
         Reads in all sub-frames.
         '''
         raw_frame = self.get_raw_frame(frame_id)
-        return frame(frame_id, self, self.with_inherited_slots(raw_frame),
+        return frame(frame_id, self,
+                     self.with_inherited_slots(frame_id, raw_frame),
                      format_slots=format_slots)
 
 
 def derive(derived, base):
+    r'''Returns new raw frame deriving `derived` from `base`.
+
+    Both `derived` and `base` are raw frames (e.g., returned from
+    get_raw_frame).
+    '''
     #print("derive")
     ans = {}
+    derived_keys = frozenset((name, value_order)
+                             for _, name, value_order in derived.keys())
     for base_key, slot in base.items():
-        if base_key not in derived:
+        if base_key[1:] not in derived_keys:
             if slot['type'] != 'delete':
                 #print("taking", base_key, "from base")
                 ans[base_key] = slot
@@ -352,28 +401,32 @@ class frame:
     r'''Interface object for a frame.
 
     some_frame.slot_name -> value (may be a slot_list)
-    some_frame.get_raw_slot(slot_name)
+    some_frame.get_raw_slot(slot_name)  # see get_raw_frame for raw slots
     some_frame.get_slot_names() -> iterable of slot_names
     '''
     def __init__(self, frame_id, version_obj, raw_frame, format_slots=True):
-        #print("frame", frame_id)
         self.frame_id = frame_id
         self.version_obj = version_obj
         self.raw_slots = {}  # {name: raw_slot|slot_list}
-        for name, slots_by_name in groupby(sorted(raw_frame.items()),
-                                           key=lambda item: item[0][0]):
+        for name, slots_by_name in groupby(sorted(raw_frame.items(),
+                                                  key=lambda item: item[0][1:]),
+                                           key=lambda item: item[0][1]):
+            #print("frame.__init__", frame_id, name)
             first_slot = next(slots_by_name)[1]
             if first_slot['value_order'] is None:
                 self.raw_slots[name] = first_slot
-                assert next(slots_by_name, 'empty') == 'empty', \
-                       "Got value_order of None in multi-valued slot: " \
-                       f"slot_id {first_slot[slot_id]}"
+                next_slot = next(slots_by_name, 'empty')
+                if next_slot != 'empty':
+                    raise AssertionError(
+                            "Got value_order of None in multi-valued slot: "
+                            f"slot_id {first_slot['slot_id']}, "
+                            f"next_slot {next_slot[1]['slot_id']}")
             else:
                 #print("frame got multi-value", name)
                 self.raw_slots[name] = slot_list(self,
                                              chain([first_slot],
                                                    (item for key, item
-                                                    in slots_by_name)))
+                                                          in slots_by_name)))
         self.fill_frame()
         if format_slots:
             self.format_slots()
@@ -464,7 +517,7 @@ class frame:
                           self.version_obj.get_frame(raw_slot['value'], False)
                         #print("sub_frame ", end='')
                         #sub_frame.print()
-                        if getattr(sub_frame, 'isa') == 'splice':
+                        if getattr(sub_frame, 'isa', None) == 'splice':
                             #print("sub_frame is splice")
                             new_slots = slot.splice(i, sub_frame)
                             i += len(new_slots)
@@ -476,7 +529,7 @@ class frame:
             elif slot['type'] == 'frame':
                 #print("not slot_list")
                 sub_frame = self.version_obj.get_frame(slot['value'], False)
-                if getattr(sub_frame, 'isa') == 'splice':
+                if getattr(sub_frame, 'isa', None) == 'splice':
                     raise AssertionError(
                             f"slot_id {slot['slot_id']} with null value_order "
                             "points to splice")
@@ -495,7 +548,13 @@ class frame:
                     format_slot(list_raw_slot)
             else:
                 if raw_slot['type'] == 'format':
-                    raw_slot['value'] = raw_slot['value'].format(**context)
+                    try:
+                        raw_slot['value'] = raw_slot['value'].format(**context)
+                    except AttributeError:
+                        # assume this frame is designed to only be used as ako
+                        # where derived frame defines what's needed in the
+                        # format.
+                        pass
                 elif isinstance(raw_slot['value'], frame):
                     raw_slot['value'].format_slots(context)
         for raw_slot in self.raw_slots.values():
@@ -571,7 +630,7 @@ class slot_list:
         #assert splice_raw_slot.get('isa') == 'splice', \
         #       f'Expected slot {splice_raw_slot["slot_id"]} to be a "splice"'
         name_to_splice = splice_raw_slot['name']
-        slot_list_to_splice = getattr(splice_frame, name_to_splice)
+        slot_list_to_splice = getattr(splice_frame, name_to_splice, None)
         #print("slot_list_to_splice", slot_list_to_splice)
         if slot_list_to_splice is not None:
             start = splice_raw_slot['value_order']
@@ -608,7 +667,8 @@ if __name__ == "__main__":
         conn.row_factory = sqlite3.Row
     db_obj = db(sqlite3, "test.db", post_connect=add_row_factory)
 
-    version_obj = version(db_obj, *sys.argv[2:])
+    frame_id = int(sys.argv[1])
+    version_obj = db_obj.at_versions(*sys.argv[2:])
 
     #print("version_ids", version_obj.version_ids)
     #print("required_versions", version_obj.required_versions)
@@ -616,14 +676,16 @@ if __name__ == "__main__":
 
     def print_slots(frame):
         print('slot_id', 'frame_id', 'name', 'value_order', 'type', 'value')
-        for _, row in sorted(frame.items()):
+        for _, row in sorted(frame.items(), key=lambda item: item[0][1:]):
             print(row['slot_id'], row['frame_id'], row['name'],
                   row['value_order'], row['type'], row['value'])
 
-    #raw_frame = version_obj.get_raw_frame(int(sys.argv[1]))
+    #raw_frame = version_obj.get_raw_frame(frame_id)
     #print_slots(raw_frame)
-    #print_slots(version_obj.with_inherited_slots(raw_frame))
+    #print_slots(version_obj.with_inherited_slots(frame_id, raw_frame))
 
-    the_frame = version_obj.get_frame(int(sys.argv[1]))
+    the_frame = version_obj.get_frame(frame_id)
     the_frame.dump()
 
+    #print(version_obj.frame_ids_with_slots(isa='table', name='*'))
+    #print(version_obj.frame_ids_with_slots(name='*'))
