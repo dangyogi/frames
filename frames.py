@@ -20,7 +20,7 @@ class db:
     This executes all sql statements on the same cursor.
 
     The only cursor method available is to treat the db as an iterator,
-    which iterates on the cursor.
+    which iterates on the cursor, and fetchone().
     '''
     paramstyles = {'qmark': ('?', "pos"),
                    'numeric': (':{}', "pos"),
@@ -43,8 +43,8 @@ class db:
         else:
             self.execute = self.execute_named
 
-    def at_versions(self, *version_names):
-        return version(self, *version_names)
+    def at_versions(self, user_id, *version_names):
+        return version(self, user_id, *version_names)
 
     def execute_named(self, sql, **sql_params):
         new_params = sql_params.copy()
@@ -89,10 +89,14 @@ class db:
     def __iter__(self):
         return iter(self.cursor)
 
+    def fetchone(self):
+        return self.cursor.fetchone()
+
 
 class version:
-    def __init__(self, db, *version_names):
+    def __init__(self, db, user_id, *version_names):
         self.db = db
+        self.user_id = user_id
         self.version_names = version_names
         self.lookup_version_ids()
         self.required_versions, self.required_map = \
@@ -102,12 +106,13 @@ class version:
         self.db.execute("""SELECT version_id, status FROM Version
                             WHERE name IN (::version_names)""",
                         version_names=self.version_names)
-        self.version_ids = []
+        version_ids = []
         self.frozen = True
         for row in self.db:
-            self.version_ids.append(row[0])
+            version_ids.append(row[0])
             if row[1] == 'proposed':
                 self.frozen = False
+        self.version_ids = frozenset(version_ids)
 
     def get_all_required_versions(self, seen=None, depth=0):
         r'''Figures out all of the required version info.
@@ -171,6 +176,8 @@ class version:
                 derived_map[slot['value']].add(frame_id)
 
         def frames_with_slot(slot_name, value):
+            if isinstance(value, frame):
+                value = frame.frame_id
             for (frame_id, name, value_order), slot in slots_found.items():
                 if name == slot_name and value in (slot['value'], '*'):
                     yield frame_id
@@ -361,6 +368,153 @@ class version:
                      self.with_inherited_slots(frame_id, raw_frame),
                      format_slots=format_slots)
 
+    def update_slot(self, slot_id, type, value, description=None):
+        r'''Returns slot_id (may have had to create a new one)
+        '''
+        if self.frozen:
+            raise AssertionError("Can not make changes to frozen versions")
+
+        self.db.execute("""SELECT version_id FROM Slot_versions
+                            WHERE slot_id = :slot_id""",
+                        slot_id=slot_id)
+        slot_versions = frozenset(row[0] for row in self.db)
+        if slot_versions == self.version_ids:
+            if isinstance(value, frame):
+                db_value = value.frame_id
+            else:
+                db_value = value
+            if type in ("integer", "frame"):
+                value_col = 'int_value'
+            elif type == 'real':
+                value_col = 'real_value'
+            elif type == 'boolean':
+                value_col = 'boolean_value'
+            elif type in ('string', 'format'):
+                value_col = 'text_value'
+            elif type == 'delete':
+                value_col = 'int_value'
+                db_value = None
+            else:
+                raise AssertionError(f"Unknown slot type: {type}")
+            self.db.execute(f"""
+              UPDATE Slot
+                 SET type = :type, {value_col} = :value,
+                 description = :description, updated_user_id = :user_id,
+                 updated_timestamp = datetime("now")
+               WHERE slot_id = :slot_id""",
+              type=type, value=value, description=description, slot_id=slot_id,
+              user_id=self.user_id)
+            return slot_id
+        self.db.execute("""SELECT frame_id, name, value_order
+                             FROM Slot
+                            WHERE slot_id = :slot_id""",
+                        slot_id=slot_id)
+        frame_id, name, value_order = self.db.fetchone()
+        raw_slot = self.create_slot(frame_id, name, value_order, type,
+                                    value, description)
+        return raw_slot['slot_id']
+
+    def create_slot(self, frame_id, name, value_order, type, value,
+                    description=None):
+        r'''Returns a raw_slot (see get_raw_frame for what a "raw_slot" is).
+        '''
+        if self.frozen:
+            raise AssertionError("Can not make changes to frozen versions")
+        if isinstance(value, frame):
+            db_value = value.frame_id
+        else:
+            db_value = value
+        if type in ("integer", "frame"):
+            value_col = 'int_value'
+        elif type == 'real':
+            value_col = 'real_value'
+        elif type == 'boolean':
+            value_col = 'boolean_value'
+        elif type in ('string', 'format'):
+            value_col = 'text_value'
+        elif type == 'delete':
+            value_col = 'int_value'
+            db_value = None
+        else:
+            raise AssertionError(f"Unknown slot type: {type}")
+
+        # Insert the new slot row
+        self.db.execute(f"""
+          INSERT INTO Slot (frame_id, name, value_order, description, type,
+                            {value_col}, creation_user_id, creation_timestamp)
+          VALUES (:frame_id, :name, :value_order, :description, :type, :value,
+                  :creation_user_id, datetime("now"));""",
+          frame_id=frame_id, name=name, value_order=value_order,
+          descrition=description, type=type, value=db_value,
+          creation_user_id=self.user_id)
+        slot_id = self.db.cursor.lastrowid
+
+        # Assign version_ids to new slot
+        for version_id in self.version_ids:
+            self.db.execute("""
+              INSERT INTO Slot_versions (slot_id, version_id,
+                                         creation_user_id, creation_timestamp)
+              VALUES (:slot_id, :version_id, :creation_user_id, datetime("now"));""",
+              slot_id=slot_id, version_id=version_id,
+              creation_user_id=self.user_id)
+
+        return dict(frame_id=frame_id,
+                    slot_id=slot_id,
+                    name=name,
+                    value_order=value_order,
+                    description=description,
+                    type=type,
+                    value=value)
+
+    def create_frame(self, *slots):
+        r'''Creates a new frame with the slots specified.
+
+        The value_order of any list/tuple values are assigned starting at 1.
+
+        Returns a new frame object.
+        '''
+        self.db.execute("""SELECT frame_id FROM Slot
+                            ORDER BY frame_id DESC
+                            LIMIT 1""")
+        frame_id, = self.db.fetchone()
+
+        def create_slot(name, value_order, value):
+            db_value = value
+            if isinstance(value, bool):
+                type = 'boolean'
+            elif isinstance(value, int):
+                type = 'integer'
+            elif isinstance(value, float):
+                type = 'real'
+            elif isinstance(value, str):
+                type = 'string'
+            elif isinstance(value, frame):
+                type = 'frame'
+                db_value = value.frame_id
+            raw_slot = self.create_slot(frame_id, name, None, type, db_value)
+            if type == 'frame':
+                raw_slot['value'] = value
+            return raw_slot
+
+        raw_frame = {}
+        ako = None
+        for name, value in slots.items():
+            if not isinstance(value, (list, tuple)):
+                raw_frame[frame_id, name, None] = create_slot(name, None, value)
+                if name == "ako":
+                    ako = value
+            else:
+                if name in ("isa", "ako"):
+                    raise AssertionError(
+                            f"{name} slot not allowed to have multiple values")
+                for i, v in enumerate(value, 1):
+                    raw_frame[frame_id, name, i] = create_slot(name, i, v)
+        if ako is not None:
+            if not isinstance(ako, frame):
+                raise AssertionError("ako slot must have a frame value")
+            raw_frame = derive(raw_frame, ako)
+        return frame(frame_id, self, raw_frame)
+
 
 def derive(derived, base):
     r'''Returns new raw frame deriving `derived` from `base`.
@@ -374,6 +528,7 @@ def derive(derived, base):
                              for _, name, value_order in derived.keys())
     for base_key, slot in base.items():
         if base_key[1:] not in derived_keys:
+            # This test is probably not necessary... ???
             if slot['type'] != 'delete':
                 #print("taking", base_key, "from base")
                 ans[base_key] = slot
@@ -402,6 +557,7 @@ class frame:
     some_frame.get_slot_names() -> iterable of slot_names (excluding deleted)
     '''
     def __init__(self, frame_id, version_obj, raw_frame, format_slots=True):
+        # For raw_frame structure, see get_raw_frame
         self.frame_id = frame_id
         self.version_obj = version_obj
         self.raw_slots = {}  # {name: raw_slot|slot_list}
@@ -420,7 +576,7 @@ class frame:
                             f"next_slot {next_slot[1]['slot_id']}")
             else:
                 #print("frame got multi-value", name)
-                self.raw_slots[name] = slot_list(self,
+                self.raw_slots[name] = slot_list(self, name,
                                              chain([first_slot],
                                                    (item for key, item
                                                           in slots_by_name)))
@@ -488,12 +644,51 @@ class frame:
     def insert_raw_slot(self, name, raw_slot):
         r'''This can override an existing raw_slot.
         '''
+        # FIX: What happens if name is "ako"??
         if name in self.raw_slots and \
            isinstance(self.raw_slots[name], slot_list):
             # This may never get used...
             self.raw_slots[name].insert_raw_slot(raw_slot)
         else:
             self.raw_slots[name] = raw_slot
+
+    def delete_raw_slot(self, name, value_order, description=None):
+        # FIX: What happens if name is "ako"??
+        self.set_raw_slot(self, name, value_order, 'delete', None, description)
+
+    def set_raw_slot(self, name, value_order, type, value, description=None):
+        r'''This can override an existing raw_slot.
+        '''
+        # FIX: What happens if name is "ako"??
+        if name in self.raw_slots:
+            raw_slot = self.raw_slots[name]
+            if isinstance(raw_slot, slot_list):
+                # This may never get used...
+                raw_slot.set_raw_slot(value_order, type, value, description)
+            elif raw_slot['frame_id'] != self.frame_id or \
+                 value_order is not None:
+                self.create_raw_slot(name, value_order, type, value,
+                                     description)
+            else:
+                slot_id = self.version_obj.update_slot(raw_slot['slot_id'],
+                                                       type=type, value=value,
+                                                       description=description)
+                raw_slot['slot_id'] = slot_id
+                raw_slot['type'] = type
+                raw_slot['value'] = value
+                raw_slot['description'] = description
+        else:
+            self.create_raw_slot(name, value_order, type, value, description)
+
+    def create_raw_slot(self, name, value_order, type, value, description=None):
+        # FIX: What happens if name is "ako"??
+        slot_id = self.version_obj.create_slot(self.frame_id, name,
+                                               value_order, type, value,
+                                               description)
+        if value_order is None:
+            self.raw_slots[name] = raw_slot
+        else:
+            self.raw_slots[name] = slot_list(self, name, [raw_slot])
 
     def fill_frame(self):
         r'''Gets all frames referred to by "frame" type slots.
@@ -574,8 +769,9 @@ class slot_list:
 
     Also supports len() and iteration.
     '''
-    def __init__(self, frame, raw_slots):
+    def __init__(self, frame, name, raw_slots):
         self.frame = frame
+        self.name = name
         self.raw_slots = list(raw_slots)
         #print("slot_list", self.raw_slots)
 
@@ -613,6 +809,42 @@ class slot_list:
                 self.raw_slots.insert(i, raw_slot)
                 break
         else:
+            self.raw_slots.append(raw_slot)
+
+    def set_raw_slot(self, value_order, type, value, description=None):
+        r'''Update or create a raw_slot.
+
+        The value_order may or may not match an existing value_order.  If it
+        matches, this is an update; otherwise a create.
+
+        Doesn't return anything.
+        '''
+        if value_order is None:
+            raise AssertionError(
+                    f'Updated multi-value slot type={type} value={value}' \
+                    'has no "value_order"')
+
+        for i, my_raw_slot in enumerate(self.raw_slots):
+            my_value_order = my_raw_slot['value_order']
+            if my_value_order == value_order:
+                slot_id = self.frame.version_obj.update_slot(
+                            my_raw_slot['slot_id'], type=type, value=value,
+                            description=description)
+                raw_slot['slot_id'] = slot_id
+                raw_slot['type'] = type
+                raw_slot['value'] = value
+                raw_slot['description'] = description
+                break
+            if my_value_order > value_order:
+                raw_slot = self.frame.version_obj.create_slot(
+                            self.frame.frame_id, self.name, value_order,
+                            type, value, description)
+                self.raw_slots.insert(i, raw_slot)
+                break
+        else:
+            raw_slot = self.frame.version_obj.create_slot(
+                        self.frame.frame_id, self.name, value_order,
+                        type, value, description)
             self.raw_slots.append(raw_slot)
 
     def splice(self, i, splice_frame):
@@ -666,8 +898,11 @@ if __name__ == "__main__":
         conn.row_factory = sqlite3.Row
     db_obj = db(sqlite3, "test.db", post_connect=add_row_factory)
 
+    db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")
+    user_id, = db_obj.fetchone()
+
     frame_id = int(sys.argv[1])
-    version_obj = db_obj.at_versions(*sys.argv[2:])
+    version_obj = db_obj.at_versions(user_id, *sys.argv[2:])
 
     #print("version_ids", version_obj.version_ids)
     #print("required_versions", version_obj.required_versions)

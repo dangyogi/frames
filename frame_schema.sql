@@ -88,7 +88,7 @@ CREATE TABLE Slot (
       -- format
       -- enum
       -- frame
-      -- deleted
+      -- delete
 
     text_value varchar(4098),
     int_value integer,
