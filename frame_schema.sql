@@ -76,7 +76,8 @@ CREATE UNIQUE INDEX Enum_option_index ON Enum_option(enum_id, name_upper);
 -- are multiple rows with the same slot name, one for each of the multiple
 -- values.  These are ordered by value_order.
 -- Each individual value is versioned.  Thus, versioning is done between rows
--- with the same frame_id, name and value_order.
+-- with the same frame_id, name and value_order; i.e., for each value in a
+-- multi-valued slot.
 CREATE TABLE Slot (
     slot_id integer primary key not null,
     frame_id integer not null,
@@ -84,27 +85,11 @@ CREATE TABLE Slot (
     name_upper varchar(80) not null,
     value_order real,                   -- must be NULL for single-valued slots
     description varchar(4098),
-    type varchar(20) not null,
-      -- integer
-      -- real
-      -- boolean
-      -- string
-      -- format
-      -- enum
-      -- frame
-      -- delete
-
-    text_value varchar(4098),
-    int_value integer,
-    real_value real,
-    boolean_value boolean,
-    date_value date,
-    time_value time,
-    time_tz_value time with time zone,
-    timestamp_value timestamp,
-    timestamp_tz_value timestamp with time zone,
-    interval_value interval,
-
+    value varchar(4096) not null,
+      -- ">nnnn" points to frame nnnn
+         -- nnnn may be digits for the frame_id, or letters for the frame_name
+      -- anything containing a { is a format string
+      -- "<deleted>" marks a deleted slot
     creation_user_id integer references User(user_id) not null,
     creation_timestamp timestamp not null,
     updated_user_id integer references User(user_id),

@@ -25,219 +25,247 @@ INSERT INTO User (login, name, password) VALUES
 
 -- id base column
 {{ macros.single_slots(base_columns.id,
-    ("isa", "string", "column"),
-    ("name", "format", "{table.name}_id"),
-    ("type", "string", "integer"),
-    ("primary_key", "boolean", True),
-    ("null", "boolean", False),
+    ("isa", "column"),
+    ("frame_name", "base_id_column"),
+    ("name", "{table.table_name}_id"),
+    ("type", "integer"),
+    ("primary_key", True),
+    ("null", False),
 ) }}
 
 -- string_no_html_chars base column
 {{ macros.single_slots(base_columns.string_no_html_chars,
-    ("isa", "string", "column"),
-    ("type", "string", "string"),
-    ("max_len", "integer", 40),
-    ("null", "boolean", False),
-    ("html_chars_allowed", "boolean", False),
-    ("display_html", "boolean", False),
+    ("isa", "column"),
+    ("frame_name", "base_string_no_html_chars_column"),
+    ("type", "string"),
+    ("max_len", 40),
+    ("null", False),
+    ("html_chars_allowed", False),
+    ("display_html", False),
 ) }}
 
 -- string_with_html_chars base column
 {{ macros.single_slots(base_columns.string_with_html_chars,
-    ("ako", "frame", base_columns.string_no_html_chars),
-    ("html_chars_allowed", "boolean", True),
+    ("ako", '>base_string_no_html_chars_column'),
+    ("frame_name", "base_string_with_html_chars_column"),
+    ("html_chars_allowed", True),
 ) }}
 
 -- html_string base column
 {{ macros.single_slots(base_columns.html_string,
-    ("ako", "frame", base_columns.string_with_html_chars),
-    ("display_html", "boolean", True),
+    ("ako", '>base_string_with_html_chars_column'),
+    ("frame_name", "base_html_string_column"),
+    ("display_html", True),
 ) }}
 
 -- text_no_html_chars base column
 {{ macros.single_slots(base_columns.text_no_html_chars,
-    ("ako", "frame", base_columns.string_no_html_chars),
-    ("max_len", "integer", 4096),
+    ("ako", '>base_string_no_html_chars_column'),
+    ("frame_name", "base_text_no_html_chars_column"),
+    ("max_len", 4096),
 ) }}
 
 -- text_with_html_chars base column
 {{ macros.single_slots(base_columns.text_with_html_chars,
-    ("ako", "frame", base_columns.string_with_html_chars),
-    ("max_len", "integer", 4096),
+    ("ako", '>base_string_with_html_chars_column'),
+    ("frame_name", "base_text_with_html_chars_column"),
+    ("max_len", 4096),
 ) }}
 
 -- html_text base column
 {{ macros.single_slots(base_columns.html_text,
-    ("ako", "frame", base_columns.html_string),
-    ("max_len", "integer", 4096),
+    ("ako", '>base_html_string_column'),
+    ("frame_name", "base_html_text_column"),
+    ("max_len", 4096),
 ) }}
 
 -- password base column
 {{ macros.single_slots(base_columns.password,
-    ("ako", "frame", base_columns.string_with_html_chars),
-    ("max_len", "integer", 1024),
-    ("name", "string", "password"),
-    ("hide", "boolean", True),
+    ("ako", '>base_string_with_html_chars_column'),
+    ("frame_name", "base_password_column"),
+    ("max_len", 1024),
+    ("name", "password"),
+    ("hide", True),
 ) }}
 
 -- email base column
 {{ macros.single_slots(base_columns.email,
-    ("ako", "frame", base_columns.string_with_html_chars),
-    ("name", "string", "email"),
-    ("max_len", "integer", 1024),
+    ("ako", '>base_string_with_html_chars_column'),
+    ("frame_name", "base_email_column"),
+    ("name", "email"),
+    ("max_len", 1024),
 ) }}
 
 -- name base column
 {{ macros.single_slots(base_columns.name,
-    ("ako", "frame", base_columns.string_no_html_chars),
-    ("name", "string", "name"),
+    ("ako", '>base_string_no_html_chars_column'),
+    ("frame_name", "base_name_column"),
+    ("name", "name"),
 ) }}
 
 -- description base column
 {{ macros.single_slots(base_columns.description,
-    ("ako", "frame", base_columns.text_with_html_chars),
-    ("name", "string", "description"),
+    ("ako", '>base_text_with_html_chars_column'),
+    ("frame_name", "base_description_column"),
+    ("name", "description"),
 ) }}
 
 -- date base column
 {{ macros.single_slots(base_columns.date,
-    ("isa", "string", "column"),
-    ("type", "string", "date"),
-    ("name", "string", "date"),
+    ("isa", "column"),
+    ("frame_name", "base_date_column"),
+    ("type", "date"),
+    ("name", "date"),
 ) }}
 
 -- time base column
 {{ macros.single_slots(base_columns.time,
-    ("isa", "string", "column"),
-    ("type", "string", "time"),
-    ("name", "string", "time"),
+    ("isa", "column"),
+    ("frame_name", "base_time_column"),
+    ("type", "time"),
+    ("name", "time"),
 ) }}
 
 -- timestamp base column
 {{ macros.single_slots(base_columns.timestamp,
-    ("isa", "string", "column"),
-    ("type", "string", "timestamp"),
-    ("name", "string", "timestamp"),
+    ("isa", "column"),
+    ("frame_name", "base_timestamp_column"),
+    ("type", "timestamp"),
+    ("name", "timestamp"),
 ) }}
 
 -- who base column
 {{ macros.single_slots(base_columns.who,
-    ("isa", "string", "column"),
-    ("type", "string", "integer"),
-    ("links_to", "string", "User(user_id)"),
-    ("check_foreign_key", "boolean", True),
-    ("name", "format", "{self.name_prefix}_user_id"),
+    ("isa", "column"),
+    ("frame_name", "base_who_column"),
+    ("type", "integer"),
+    ("links_to", "User(user_id)"),
+    ("check_foreign_key", True),
+    ("name", "{self.name_prefix}_user_id"),
 ) }}
 
 -- when base column
 {{ macros.single_slots(base_columns.when,
-    ("ako", "frame", base_columns.timestamp),
-    ("name", "format", "{self.name_prefix}_timestamp"),
+    ("ako", '>base_timestamp_column'),
+    ("frame_name", "base_when_column"),
+    ("name", "{self.name_prefix}_timestamp"),
 ) }}
 
 -- whodunit base column
 {{ macros.single_slots(base_columns.whodunit,
-    ("isa", "string", "splice"),
+    ("isa", "splice"),
+    ("frame_name", "base_whodunit_columns"),
 ) }}
-{{ macros.multi_slot(base_columns.whodunit, "column", "frame",
-    base_columns.who, base_columns.when,
+{{ macros.multi_slot(base_columns.whodunit, "column",
+    '>base_who_column', '>base_when_column',
 ) }}
 
 -- created base column
 {{ macros.single_slots(base_columns.created,
-    ("ako", "frame", base_columns.whodunit),
-    ("name_prefix", "string", "created"),
-    ("null", "boolean", False),
+    ("ako", '>base_whodunit_columns'),
+    ("frame_name", "base_created_columns"),
+    ("name_prefix", "created"),
+    ("null", False),
 ) }}
 
 -- updated base column
 {{ macros.single_slots(base_columns.updated,
-    ("ako", "frame", base_columns.whodunit),
-    ("name_prefix", "string", "updated"),
-    ("null", "boolean", True),
+    ("ako", '>base_whodunit_columns'),
+    ("frame_name", "base_updated_columns"),
+    ("name_prefix", "updated"),
+    ("null", True),
 ) }}
 
 -- audit base column
 {{ macros.single_slots(base_columns.audit,
-    ("isa", "string", "splice"),
+    ("isa", "splice"),
+    ("frame_name", "base_audit_columns"),
 ) }}
-{{ macros.multi_slot(base_columns.audit, "column", "frame",
-    base_columns.created, base_columns.updated,
+{{ macros.multi_slot(base_columns.audit, "column",
+    '>base_created_columns', '>base_updated_columns',
 ) }}
 
 
 -- id base table
 {{ macros.single_slots(base_tables.id,
-    ("isa", "string", "table"),
+    ("isa", "table"),
+    ("frame_name", "base_id_table"),
 ) }}
-{{ macros.multi_slot(base_tables.id, "column", "frame",
-    base_columns.id,
+{{ macros.multi_slot(base_tables.id, "column",
+    '>base_id_column',
 ) }}
 
 -- audit base table
 {{ macros.single_slots(base_tables.audit,
-    ("isa", "string", "table"),
+    ("isa", "table"),
+    ("frame_name", "base_audit_table"),
 ) }}
-{{ macros.multi_slot2(base_tables.audit, "column", "frame", 9000,
-    base_columns.audit,
+{{ macros.multi_slot2(base_tables.audit, "column", 9000,
+    '>base_audit_columns',
 ) }}
 
 -- id_audit base table
 {{ macros.single_slots(base_tables.id_audit,
-    ("ako", "frame", base_tables.id),
+    ("ako", '>base_id_table'),
+    ("frame_name", "base_id_audit_table"),
 ) }}
-{{ macros.multi_slot2(base_tables.id_audit, "column", "frame", 9000,
-    base_columns.audit,
+{{ macros.multi_slot2(base_tables.id_audit, "column", 9000,
+    '>base_audit_columns',
 ) }}
 
 -- name_desc base table
 {{ macros.single_slots(base_tables.name_desc,
-    ("ako", "frame", base_tables.id_audit),
+    ("ako", '>base_id_audit_table'),
+    ("frame_name", "base_name_desc_table"),
 ) }}
-{{ macros.multi_slot2(base_tables.name_desc, "column", "frame", 50,
-    base_columns.name,
-    base_columns.description,
+{{ macros.multi_slot2(base_tables.name_desc, "column", 50,
+    '>base_name_column',
+    '>base_description_column',
 ) }}
 
 
 -- User table
 {{ macros.single_slots(tables.user,
-     ("ako", "frame", base_tables.id),
-     ("name", "string", "User"),
+     ("ako", '>base_id_table'),
+     ("table_name", "User"),
 ) }}
-{{ macros.multi_slot2(tables.user, "column", "frame", 100,
-     user.login,
-     user.password,
-     user.name,
-     user.email,
+{{ macros.multi_slot2(tables.user, "column", 100,
+     '>user_login_column',
+     '>user_password_column',
+     '>user_name_column',
+     '>user_email_column',
 ) }}
 
 -- login
 {{ macros.single_slots(user.login,
-     ("ako", "frame", base_columns.name),
-     ("name", "string", "login"),
+     ("ako", '>base_name_column'),
+     ("frame_name", 'user_login_column'),
+     ("name", "login"),
 ) }}
 
 -- password
 {{ macros.single_slots(user.password,
-     ("ako", "frame", base_columns.password),
+     ("ako", '>base_password_column'),
+     ("frame_name", 'user_password_column'),
 ) }}
 
 -- name
 {{ macros.single_slots(user.name,
-     ("ako", "frame", base_columns.name),
+     ("ako", '>base_name_column'),
+     ("frame_name", 'user_name_column'),
 ) }}
 
 -- email
 {{ macros.single_slots(user.email,
-     ("ako", "frame", base_columns.email),
+     ("ako", '>base_email_column'),
+     ("frame_name", 'user_email_column'),
 ) }}
-{{ macros.insert("Slot", "frame_id, name, name_upper, type, boolean_value",
-                 '{}, "null", "NULL", "boolean", False'.format(user.email)) }}
+{{ macros.insert("Slot", "frame_id, name, name_upper, value",
+                 '{}, "null", "NULL", False'.format(user.email)) }}
 {{ macros.insert("Slot_versions", "slot_id, version_id",
                  'last_insert_rowid(), 5') }}
-{{ macros.insert("Slot", "frame_id, name, name_upper, type, boolean_value",
-                 '{}, "null", "NULL", "boolean", True'.format(user.email)) }}
+{{ macros.insert("Slot", "frame_id, name, name_upper, value",
+                 '{}, "null", "NULL", True'.format(user.email)) }}
 {{ macros.insert("Slot_versions", "slot_id, version_id",
                  'last_insert_rowid()', 2, 5) }}
 
@@ -245,19 +273,20 @@ INSERT INTO User (login, name, password) VALUES
 
 -- Version table
 {{ macros.single_slots(tables.version,
-     ("ako", "frame", base_tables.name_desc),
-     ("name", "string", "Version"),
+     ("ako", '>base_name_desc_table'),
+     ("table_name", "Version"),
 ) }}
-{{ macros.multi_slot2(tables.version, "column", "frame", 100,
-     version.status,
+{{ macros.multi_slot2(tables.version, "column", 100,
+     '>version_status_column',
 ) }}
 
 -- status
 {{ macros.single_slots(version.status,
-     ("ako", "frame", base_columns.string_no_html_chars),
-     ("name", "string", "status"),
-     ("max_len", "integer", 40),
-     ("default", "string", "proposed"),
+     ("ako", '>base_string_no_html_chars_column'),
+     ("frame_name", "version_status_column"),
+     ("name", "status"),
+     ("max_len", 40),
+     ("default", "proposed"),
 ) }}
 
 

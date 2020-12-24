@@ -15,26 +15,10 @@ INSERT INTO {{ table }} ({{ columns }}, creation_user_id, creation_timestamp) VA
 {%- endmacro %}
 
 
-{% macro slot(frame_id, name, type, value, value_order="NULL") -%}
-{% set col_names = "frame_id, name, name_upper, type, value_order" -%}
-{% set values = '{}, "{}", "{}", "{}", {}'.format(frame_id, name, name.upper(), type, value_order) -%}
-{% if type in ("integer", "frame") -%}
-{% set col_names = col_names + ', int_value' -%}
-{% set values = values + ', {}'.format(value) -%}
-{% elif type == "real" -%}
-{% set col_names = col_names + ', real_value' -%}
-{% set values = values + ', {}'.format(value) -%}
-{% elif type == "boolean" -%}
-{% set col_names = col_names + ', boolean_value' -%}
-{% set values = values + ', {}'.format(value) -%}
-{% elif type in ("string", "format") -%}
-{% set col_names = col_names + ', text_value' -%}
-{% set values = values + ', "{}"'.format(value) -%}
-{% elif type == "enum" -%}
-{% set col_names = col_names + ', int_value, text_value' -%}
-{% set values = values + ', {}'.format(value) -%}
-{% endif -%}
-{{ insert("Slot", col_names, values) }}
+{% macro slot(frame_id, name, value, value_order="NULL") -%}
+{{ insert("Slot", "frame_id, name, name_upper, value_order, value",
+          '{}, "{}", "{}", {}, "{}"'.format(frame_id, name, name.upper(),
+                                            value_order, value)) }}
 {{ insert("Slot_versions",
           "slot_id, version_id",
           'last_insert_rowid(), {}'.format(versions.first_id)) }}
@@ -42,8 +26,8 @@ INSERT INTO {{ table }} ({{ columns }}, creation_user_id, creation_timestamp) VA
 
 
 {% macro single_slots(frame_id) -%}
-{% for name, type, value in varargs -%}
-{{ slot(frame_id, name, type, value) }}
+{% for name, value in varargs -%}
+{{ slot(frame_id, name, value) }}
 {% if not loop.last %}
 
 {% endif -%}
@@ -51,9 +35,9 @@ INSERT INTO {{ table }} ({{ columns }}, creation_user_id, creation_timestamp) VA
 {%- endmacro -%}
 
 
-{% macro multi_slot(frame_id, name, type) -%}
+{% macro multi_slot(frame_id, name) -%}
 {% for value in varargs -%}
-{{ slot(frame_id, name, type, value, loop.index) }}
+{{ slot(frame_id, name, value, loop.index) }}
 {% if not loop.last %}
 
 {% endif -%}
@@ -61,9 +45,9 @@ INSERT INTO {{ table }} ({{ columns }}, creation_user_id, creation_timestamp) VA
 {%- endmacro -%}
 
 
-{% macro multi_slot2(frame_id, name, type, first_order) -%}
+{% macro multi_slot2(frame_id, name, first_order) -%}
 {% for value in varargs -%}
-{{ slot(frame_id, name, type, value, loop.index + first_order - 1.0) }}
+{{ slot(frame_id, name, value, loop.index + first_order - 1.0) }}
 {% if not loop.last %}
 
 {% endif -%}
