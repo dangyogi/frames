@@ -347,11 +347,7 @@ class version:
             base_frame = self.get_raw_frame(base_frame_id)
             return derive(raw_frame,
                           self.with_inherited_slots(base_frame_id, base_frame))
-        new_frame = raw_frame.copy()
-        for key, slot in raw_frame.items():
-            if slot['type'] == 'delete':
-                del new_frame[key]
-        return new_frame
+        return raw_frame
 
     def get_frame(self, frame_id, format_slots=True):
         r'''Returns a frame object.
@@ -383,7 +379,7 @@ def derive(derived, base):
                 ans[base_key] = slot
     #print("from base", ans)
     for key, slot in derived.items():
-        if slot['type'] != 'delete' and slot['name'] != 'ako':
+        if slot['name'] != 'ako':
             #print("taking", key, "from derived")
             ans[key] = slot
     return ans
@@ -400,9 +396,10 @@ def expand_formats(frame):
 class frame:
     r'''Interface object for a frame.
 
-    some_frame.slot_name -> value (may be a slot_list)
+    some_frame.slot_name -> value (may be a slot_list) # but not type='delete'
     some_frame.get_raw_slot(slot_name)  # see get_raw_frame for raw slots
-    some_frame.get_slot_names() -> iterable of slot_names
+                                        # returnes type='delete'
+    some_frame.get_slot_names() -> iterable of slot_names (excluding deleted)
     '''
     def __init__(self, frame_id, version_obj, raw_frame, format_slots=True):
         self.frame_id = frame_id
@@ -447,10 +444,13 @@ class frame:
         slot = self.get_raw_slot(slot_name)
         if isinstance(slot, slot_list):
             return slot
+        if slot['type'] == 'delete':
+            raise AttributeError(f"{slot_name} deleted")
         return slot['value']
 
     def get_slot_names(self):
-        return self.raw_slots.keys()
+        return [key for key, slot in self.raw_slots.items()
+                    if isinstance(slot, slot_list) or slot['type'] != 'delete']
 
     def get_raw_slot(self, slot_name):
         try:
@@ -525,6 +525,8 @@ class frame:
                             raw_slot['value'] = sub_frame
                             #print("sub_frame not splice", raw_slot)
                             i += 1
+                    else:
+                        i += 1
                 #print("final slot_list", slot)
             elif slot['type'] == 'frame':
                 #print("not slot_list")
@@ -617,9 +619,6 @@ class slot_list:
         r'''Splices new raw_slots into current raw_slots replacing i.
         
         Makes copies of each new raw_slot, then changes their value_orders.
-
-        Stores the deleted raw_slot on each new value's "from_splice"
-        attribute.
 
         Returns the copied new raw_slots (in case you want to see their newly
         assigned value_orders).
