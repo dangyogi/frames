@@ -512,7 +512,7 @@ class version:
         if ako is not None:
             if not isinstance(ako, frame):
                 raise AssertionError("ako slot must have a frame value")
-            raw_frame = derive(raw_frame, ako)
+            raw_frame = derive(raw_frame, ako.as_raw_frame())
         return frame(frame_id, self, raw_frame)
 
 
@@ -613,6 +613,15 @@ class frame:
             return self.raw_slots[slot_name]
         except KeyError:
             raise AttributeError(slot_name)
+
+    def as_raw_frame(self):
+        ans = {}
+        for name, raw_slot in self.raw_slots.items():
+            if isinstance(raw_slot, slot_list):
+                raw_slot.populate_raw_frame(ans)
+            else:
+                ans[self.frame_id, name, None] = raw_slot
+        return ans
 
     def print(self):
         for name in sorted(self.get_slot_names()):
@@ -793,6 +802,11 @@ class slot_list:
 
     def get_raw_slot(self, i):
         return self.raw_slots[i]
+
+    def populate_raw_frame(self, raw_frame):
+        for raw_slot in self.raw_slots:
+            key = self.frame.frame_id, raw_slot['name'], raw_slot['value_order']
+            raw_frame[key] = raw_slot
 
     def insert_raw_slot(self, raw_slot):
         value_order = raw_slot['value_order']
