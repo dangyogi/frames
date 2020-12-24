@@ -16,8 +16,8 @@ INSERT INTO {{ table }} ({{ columns }}, creation_user_id, creation_timestamp) VA
 
 
 {% macro slot(frame_id, name, type, value, value_order="NULL") -%}
-{% set col_names = "frame_id, name, type, value_order" -%}
-{% set values = '{}, "{}", "{}", {}'.format(frame_id, name, type, value_order) -%}
+{% set col_names = "frame_id, name, name_upper, type, value_order" -%}
+{% set values = '{}, "{}", "{}", "{}", {}'.format(frame_id, name, name.upper(), type, value_order) -%}
 {% if type in ("integer", "frame") -%}
 {% set col_names = col_names + ', int_value' -%}
 {% set values = values + ', {}'.format(value) -%}

@@ -104,8 +104,8 @@ class version:
 
     def lookup_version_ids(self):
         self.db.execute("""SELECT version_id, status FROM Version
-                            WHERE lower(name) IN (::version_names)""",
-                        version_names=[v.lower() for v in self.version_names])
+                            WHERE name_upper IN (::version_names)""",
+                        version_names=[v.upper() for v in self.version_names])
         version_ids = []
         self.frozen = True
         for row in self.db:
@@ -163,26 +163,26 @@ class version:
 
         Returns a set of frame_ids.
         '''
-        slot_names = frozenset(k.lower() for k in slots.keys())
-        slot_names_with_ako = slot_names.union(['ako'])
+        slot_names = frozenset(k.upper() for k in slots.keys())
+        slot_names_with_ako = slot_names.union(['AKO'])
         slots_found = self.select_slots_by_version(
-                        "lower(name) IN (::slot_names_with_ako)",
+                        "name_upper IN (::slot_names_with_ako)",
                         slot_names_with_ako=slot_names_with_ako)
 
         # {base_id: {derived_id}}
         derived_map = defaultdict(set)
         for (frame_id, name, _), slot in slots_found.items():
-            if name == 'ako':
+            if name == 'AKO':
                 derived_map[slot['value']].add(frame_id)
 
         def frames_with_slot(slot_name, value):
             if isinstance(value, frame):
                 value = frame.frame_id
             if isinstance(value, str):
-                value = value.lower()
+                value = value.upper()
             for (frame_id, name, value_order), slot in slots_found.items():
                 if name == slot_name and \
-                   value in ((slot['value'].lower()
+                   value in ((slot['value'].upper()
                               if isinstance(slot['value'], str)
                               else slot['value']),
                              '*'):
@@ -195,7 +195,7 @@ class version:
                     yield d
                     yield from spew_derived(d, name, value_order)
 
-        found = [frozenset(frames_with_slot(slot_name.lower(), value))
+        found = [frozenset(frames_with_slot(slot_name.upper(), value))
                  for slot_name, value in slots.items()]
         return found[0].intersection(*found[1:])
 
@@ -206,7 +206,7 @@ class version:
 
         Does not include inherited slots.
         
-        Returns {(frame_id, name.lower(), value_order): slot}
+        Returns {(frame_id, name.upper(), value_order): slot}
 
         Where slot is dict with the following keys:
             - frame_id
@@ -243,7 +243,7 @@ class version:
         self.db.execute("""SELECT *
                              FROM Slot
                             WHERE slot_id IN (::slot_ids)
-                            ORDER BY frame_id, lower(name), value_order;""",
+                            ORDER BY frame_id, name_upper, value_order;""",
                         slot_ids=matching_slot_ids)
 
         def get_value(row):
@@ -259,7 +259,7 @@ class version:
                    f"multiple type values set on frame {frame_id}!"
             return values[0]
 
-        return {(row['frame_id'], row['name'].lower(), row['value_order']):
+        return {(row['frame_id'], row['name'].upper(), row['value_order']):
                 dict(frame_id=row['frame_id'],
                      slot_id=row['slot_id'],
                      name=row['name'],
@@ -272,7 +272,7 @@ class version:
     def select_slot_ids_by_version(self, raw_slot_rows):
         r'''raw_slot_rows is (frame_id, name, value_order, slot_id, version_id)
 
-        raw_slots must be sorted by frame_id, lower(name), value_order, slot_id.
+        raw_slots must be sorted by frame_id, upper(name), value_order, slot_id.
 
         Returns a list of selected slot_ids.
         '''
@@ -354,7 +354,7 @@ class version:
         Returns same structure as get_raw_frame.
         '''
         #print("with_inherited_slots", frame_id)
-        ako = raw_frame.get((frame_id, 'ako', None))
+        ako = raw_frame.get((frame_id, 'AKO', None))
         if ako and ako['type'] == 'frame':
             base_frame_id = ako['value']
             base_frame = self.get_raw_frame(base_frame_id)
@@ -506,16 +506,16 @@ class version:
         ako = None
         for name, value in slots.items():
             if not isinstance(value, (list, tuple)):
-                raw_frame[frame_id, name.lower(), None] = \
+                raw_frame[frame_id, name.upper(), None] = \
                   create_slot(name, None, value)
-                if name.lower() == "ako":
+                if name.upper() == "AKO":
                     ako = value
             else:
-                if name.lower() in ("isa", "ako"):
+                if name.upper() in ("ISA", "AKO"):
                     raise AssertionError(
                             f"{name} slot not allowed to have multiple values")
                 for i, v in enumerate(value, 1):
-                    raw_frame[frame_id, name.lower(), i] = \
+                    raw_frame[frame_id, name.upper(), i] = \
                       create_slot(name, i, v)
         if ako is not None:
             if not isinstance(ako, frame):
@@ -542,7 +542,7 @@ def derive(derived, base):
                 ans[base_key] = slot
     #print("from base", ans)
     for key, slot in derived.items():
-        if slot['name'].lower() != 'ako':
+        if slot['name'].upper() != 'AKO':
             #print("taking", key, "from derived")
             ans[key] = slot
     return ans
@@ -568,7 +568,7 @@ class frame:
         # For raw_frame structure, see get_raw_frame
         self.frame_id = frame_id
         self.version_obj = version_obj
-        self.raw_slots = {}  # {name.lower(): raw_slot|slot_list}
+        self.raw_slots = {}  # {name.upper(): raw_slot|slot_list}
         for name, slots_by_name in groupby(sorted(raw_frame.items(),
                                                   key=lambda item: item[0][1:]),
                                            key=lambda item: item[0][1]):
@@ -604,7 +604,15 @@ class frame:
     def frozen(self):
         return self.version_obj.frozen
 
+    def get_slot_names(self):
+        r'''The returned names have been uppercased.
+        '''
+        return [key for key, slot in self.raw_slots.items()
+                    if isinstance(slot, slot_list) or slot['type'] != 'delete']
+
     def __getattr__(self, slot_name):
+        r'''`slot_name` can be any case (upper/lower).
+        '''
         slot = self.get_raw_slot(slot_name)
         if isinstance(slot, slot_list):
             return slot
@@ -612,15 +620,11 @@ class frame:
             raise AttributeError(f"{slot_name} deleted")
         return slot['value']
 
-    def get_slot_names(self):
-        r'''The returned names have been lowercased.
-        '''
-        return [key for key, slot in self.raw_slots.items()
-                    if isinstance(slot, slot_list) or slot['type'] != 'delete']
-
     def get_raw_slot(self, slot_name):
+        r'''`slot_name` can be any case (upper/lower).
+        '''
         try:
-            return self.raw_slots[slot_name.lower()]
+            return self.raw_slots[slot_name.upper()]
         except KeyError:
             raise AttributeError(slot_name)
 
@@ -664,12 +668,12 @@ class frame:
         r'''This can override an existing raw_slot.
         '''
         # FIX: What happens if name is "ako"??
-        if name.lower() in self.raw_slots and \
-           isinstance(self.raw_slots[name.lower()], slot_list):
+        if name.upper() in self.raw_slots and \
+           isinstance(self.raw_slots[name.upper()], slot_list):
             # This may never get used...
-            self.raw_slots[name.lower()].insert_raw_slot(raw_slot)
+            self.raw_slots[name.upper()].insert_raw_slot(raw_slot)
         else:
-            self.raw_slots[name.lower()] = raw_slot
+            self.raw_slots[name.upper()] = raw_slot
 
     def delete_raw_slot(self, name, value_order, description=None):
         # FIX: What happens if name is "ako"??
@@ -679,8 +683,8 @@ class frame:
         r'''This can override an existing raw_slot.
         '''
         # FIX: What happens if name is "ako"??
-        if name.lower() in self.raw_slots:
-            raw_slot = self.raw_slots[name.lower()]
+        if name.upper() in self.raw_slots:
+            raw_slot = self.raw_slots[name.upper()]
             if isinstance(raw_slot, slot_list):
                 # This may never get used...
                 raw_slot.set_raw_slot(value_order, type, value, description)
@@ -705,9 +709,9 @@ class frame:
                                                value_order, type, value,
                                                description)
         if value_order is None:
-            self.raw_slots[name.lower()] = raw_slot
+            self.raw_slots[name.upper()] = raw_slot
         else:
-            self.raw_slots[name.lower()] = slot_list(self, name, [raw_slot])
+            self.raw_slots[name.upper()] = slot_list(self, name, [raw_slot])
 
     def fill_frame(self):
         r'''Gets all frames referred to by "frame" type slots.
@@ -718,6 +722,7 @@ class frame:
 
         Does of all this in place.  Returns nothing.
         '''
+        #print("fill_frame", self.frame_id)
         for name, slot in self.raw_slots.items():
             #print("fill_frame", name, slot)
             if isinstance(slot, slot_list):
@@ -815,7 +820,8 @@ class slot_list:
 
     def populate_raw_frame(self, raw_frame):
         for raw_slot in self.raw_slots:
-            key = self.frame.frame_id, raw_slot['name'], raw_slot['value_order']
+            key = (self.frame.frame_id, raw_slot['name'].upper(),
+                   raw_slot['value_order'])
             raw_frame[key] = raw_slot
 
     def insert_raw_slot(self, raw_slot):
@@ -879,12 +885,13 @@ class slot_list:
         Returns the copied new raw_slots (in case you want to see their newly
         assigned value_orders).
         '''
+        #print(f"splice({self.frame.frame_id}, {self.name})", i, splice_frame)
         new_raw_slots = []
         splice_raw_slot = self.raw_slots[i]
         #print("splice_raw_slot", splice_raw_slot)
-        #assert splice_raw_slot.get('isa') == 'splice', \
+        #assert splice_frame.get('isa') == 'splice', \
         #       f'Expected slot {splice_raw_slot["slot_id"]} to be a "splice"'
-        name_to_splice = splice_raw_slot['name']
+        name_to_splice = splice_raw_slot['name']  # Not upper!
         slot_list_to_splice = getattr(splice_frame, name_to_splice, None)
         #print("slot_list_to_splice", slot_list_to_splice)
         if slot_list_to_splice is not None:
@@ -901,7 +908,7 @@ class slot_list:
                 copied_value['value_order'] = start + n * inc
                 if isinstance(copied_value['value'], frame):
                     for name in splice_frame.get_slot_names():
-                        if name not in ('isa', name_to_splice):
+                        if name not in ('ISA', name_to_splice.upper()):
                             slot_to_stuff = splice_frame.get_raw_slot(name)
                             copied_value['value'].insert_raw_slot(name,
                                                                   slot_to_stuff)

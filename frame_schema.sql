@@ -15,6 +15,7 @@ CREATE UNIQUE INDEX User_index ON User(login);
 CREATE TABLE Version (
     version_id integer primary key not null,
     name varchar(80) not null,
+    name_upper varchar(80) not null,
     description varchar(4098),
     status varchar(40) not null default "proposed",
        -- proposed (can be changed)
@@ -26,7 +27,7 @@ CREATE TABLE Version (
     updated_timestamp timestamp
 );
 
-CREATE UNIQUE INDEX Version_index ON Version(name);
+CREATE UNIQUE INDEX Version_index ON Version(name_upper);
 
 
 CREATE TABLE Version_requires (
@@ -45,6 +46,7 @@ CREATE UNIQUE INDEX Version_requires_index
 CREATE TABLE Enum_type (
     enum_id integer primary key not null,
     name varchar(80) not null,
+    name_upper varchar(80) not null,
     description varchar(4098),
     creation_user_id integer references User(user_id) not null,
     creation_timestamp timestamp not null,
@@ -52,12 +54,13 @@ CREATE TABLE Enum_type (
     updated_timestamp timestamp
 );
 
-CREATE UNIQUE INDEX Enum_type_index ON Enum_type(name);
+CREATE UNIQUE INDEX Enum_type_index ON Enum_type(name_upper);
 
 CREATE TABLE Enum_option (
     enum_option_id integer primary key not null,
     enum_id integer references Enum_type(enum_id) not null,
     name varchar(80) not null,
+    name_upper varchar(80) not null,
     description varchar(4098),
     creation_user_id integer references User(user_id) not null,
     creation_timestamp timestamp not null,
@@ -65,7 +68,7 @@ CREATE TABLE Enum_option (
     updated_timestamp timestamp
 );
 
-CREATE UNIQUE INDEX Enum_option_index ON Enum_option(enum_id, name);
+CREATE UNIQUE INDEX Enum_option_index ON Enum_option(enum_id, name_upper);
 
 
 -- Conceptually, frames have named slots (identified by frame_id, name).
@@ -78,6 +81,7 @@ CREATE TABLE Slot (
     slot_id integer primary key not null,
     frame_id integer not null,
     name varchar(80) not null,
+    name_upper varchar(80) not null,
     value_order real,                   -- must be NULL for single-valued slots
     description varchar(4098),
     type varchar(20) not null,
@@ -107,7 +111,7 @@ CREATE TABLE Slot (
     updated_timestamp timestamp
 );
 
-CREATE INDEX Slot_index ON Slot(frame_id, name);
+CREATE INDEX Slot_index ON Slot(frame_id, name_upper);
 
 CREATE TABLE Slot_versions (
     slot_id integer references Slot(slot_id) not null,
