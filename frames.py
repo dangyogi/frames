@@ -446,13 +446,14 @@ class version:
 
         # Insert the new slot row
         self.db.execute(f"""
-          INSERT INTO Slot (frame_id, name, value_order, description, type,
-                            {value_col}, creation_user_id, creation_timestamp)
-          VALUES (:frame_id, :name, :value_order, :description, :type, :value,
-                  :creation_user_id, datetime("now"));""",
-          frame_id=frame_id, name=name, value_order=value_order,
-          descrition=description, type=type, value=db_value,
-          creation_user_id=self.user_id)
+          INSERT INTO Slot (frame_id, name, name_upper, value_order,
+                            description, type, {value_col},
+                            creation_user_id, creation_timestamp)
+          VALUES (:frame_id, :name, :name_upper, :value_order, :description,
+                  :type, :value, :creation_user_id, datetime("now"));""",
+          frame_id=frame_id, name=name, name_upper=name.upper(),
+          value_order=value_order, descrition=description, type=type,
+          value=db_value, creation_user_id=self.user_id)
         slot_id = self.db.cursor.lastrowid
 
         # Assign version_ids to new slot
