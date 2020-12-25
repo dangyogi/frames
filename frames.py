@@ -134,7 +134,6 @@ class version:
         self.lookup_version_ids()
         self.required_versions, self.required_map = \
           self.get_all_required_versions()
-        print("version_obj", self.version_names, self.version_ids, self.required_versions)
 
     def lookup_version_ids(self):
         self.db.execute("""SELECT version_id, status FROM Version
@@ -488,8 +487,8 @@ class version:
 
         Only called by load_yaml/load_frame.
 
-        Returns the frame_label ("$<frame_id>" or "$<frame_name>") for the new
-        frame.
+        Returns frame_id, frame_label ("$<frame_id>" or "$<frame_name>") for
+        the new frame.
         '''
         self.db.execute("""SELECT frame_id FROM Slot
                             ORDER BY frame_id DESC
@@ -539,13 +538,13 @@ class version:
                         "value_order not allowed on single-valued "
                         f"slot {slot_name}")
             if isinstance(value, dict):   # nested frame
-                value = version_obj.create_frame(value)
+                _, value = version_obj.create_frame(value)
             if new_offset is not None:
                 return version_obj, new_offset - i, value
             return version_obj, value_order_offset, value
         frame_label = f"${frame_id}"
         for name, value in slots.items():
-            print("create_frame", name, value)
+            #print("create_frame", name, value)
             version_obj, _, value = unwrap_value(name, value)
             if not isinstance(value, (list, tuple)):
                 if name.upper() == 'FRAME_NAME':
@@ -562,7 +561,7 @@ class version:
                     this_version_obj.create_slot(frame_id, name,
                                                  i + value_order_offset,
                                                  v)
-        return frame_label
+        return frame_id, frame_label
 
 
 def derive(derived, base):
@@ -976,12 +975,13 @@ def load_yaml(db, filename):
 
 def load_users(db, objects):
     for user in objects['users']:
-        print("loading user", user['name'])
+        print("loading user", user['name'], end='')
         if 'email' not in user:
             user['email'] = None
         db.execute("""INSERT INTO User (login, password, name, email)
                       VALUES (:login, :password, :name, :email)""",
                    **user)
+        print(' -> user_id', db.lastrowid())
 
 def load_versions(db, objects):
     user_name = objects['user']
@@ -990,7 +990,7 @@ def load_versions(db, objects):
     user_id, = db.fetchone()
     for version in objects['versions']:
         name = version['name']
-        print("loading version", name)
+        print("loading version", name, end='')
         db.execute("""
              INSERT INTO Version (name, name_upper, description,
                                   creation_user_id, creation_timestamp)
@@ -1009,6 +1009,7 @@ def load_versions(db, objects):
                    FROM Version
                   WHERE name = :v""",
                  version_id=version_id, v=v, creation_user_id=user_id)
+        print(' -> version_id', version_id)
 
 
 def load_frames(db, objects):
@@ -1018,8 +1019,12 @@ def load_frames(db, objects):
     user_id, = db.fetchone()
     version_obj = db_obj.at_versions(user_id, *objects['required_versions'])
     for frame in objects['frames']:
-        print("loading frame", frame.get('frame_name') or frame.get('name'))
-        version_obj.create_frame(frame)
+        print("loading frame",
+              frame.get('frame_name') or frame.get('name') or
+              frame.get('table_name'),
+              end='')
+        frame_id, _ = version_obj.create_frame(frame)
+        print(' -> frame_id', frame_id)
 
 
 
@@ -1031,8 +1036,8 @@ if __name__ == "__main__":
         conn.row_factory = sqlite3.Row
     db_obj = db(sqlite3, "test.db", post_connect=add_row_factory)
 
-    if False:
-        print(load_yaml(db_obj, "frame_data.yaml"))
+    if True:
+        load_yaml(db_obj, "frame_data.yaml")
     else:
         db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")
         user_id, = db_obj.fetchone()
