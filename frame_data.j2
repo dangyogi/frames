@@ -27,7 +27,7 @@ INSERT INTO User (login, name, password) VALUES
 {{ macros.single_slots(base_columns.id,
     ("isa", "column"),
     ("frame_name", "base_id_column"),
-    ("name", "{table.table_name}_id"),
+    ("name", "{{ table.table_name }}_id"),
     ("type", "integer"),
     ("primary_key", True),
     ("null", False),
@@ -141,14 +141,14 @@ INSERT INTO User (login, name, password) VALUES
     ("type", "integer"),
     ("links_to", "User(user_id)"),
     ("check_foreign_key", True),
-    ("name", "{self.name_prefix}_user_id"),
+    ("name", "{{ frame.name_prefix }}_user_id"),
 ) }}
 
 -- when base column
 {{ macros.single_slots(base_columns.when,
     ("ako", '>base_timestamp_column'),
     ("frame_name", "base_when_column"),
-    ("name", "{self.name_prefix}_timestamp"),
+    ("name", "{{ frame.name_prefix }}_timestamp"),
 ) }}
 
 -- whodunit base column

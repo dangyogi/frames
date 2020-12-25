@@ -5,6 +5,21 @@ from itertools import groupby, chain
 from operator import itemgetter
 from collections import defaultdict
 
+from jinja2 import Environment, StrictUndefined, exceptions
+
+
+Jinja2_env = Environment(trim_blocks=True,
+                         lstrip_blocks=True,
+                         keep_trailing_newline=True,
+                         autoescape=False,
+                        #variable_start_string='{',
+                        #variable_end_string='}',
+                         undefined=StrictUndefined,
+                        )
+
+def format(templ, context):
+    return Jinja2_env.from_string(templ).render(context)
+
 
 class db:
     r'''Encapsulates the various database modules.
@@ -176,6 +191,8 @@ class version:
                 derived_map[slot['value']].add(frame_id)
 
         def frames_with_slot(slot_name, value):
+            r'''Slot_name is passed in uppercase.
+            '''
             if isinstance(value, frame):
                 value = frame.frame_id
             if isinstance(value, str):
@@ -187,7 +204,8 @@ class version:
                               else slot['value']),
                              '*'):
                     yield frame_id
-                    yield from spew_derived(frame_id, name, value_order)
+                    if slot_name != 'FRAME_NAME':
+                        yield from spew_derived(frame_id, name, value_order)
 
         def spew_derived(frame_id, name, value_order):
             for d in derived_map[frame_id]:
@@ -501,13 +519,6 @@ def derive(derived, base):
     return ans
 
 
-def expand_formats(frame):
-    for slot in frame.values():
-        if '{' in slot['value']:
-            slot['format'] = slot['value']  # save format
-            slot['value'] = slot['value'].format(**slot)
-
-
 class frame:
     r'''Interface object for a frame.
 
@@ -713,7 +724,7 @@ class frame:
             context = {}
         if hasattr(self, 'isa'):
             context[self.isa] = self
-        context['self'] = self
+        context['frame'] = self
         def format_slot(raw_slot):
             if isinstance(raw_slot, slot_list):
                 for list_raw_slot in raw_slot.iter_raw_slots():
@@ -721,10 +732,11 @@ class frame:
             else:
                 if isinstance(raw_slot['value'], frame):
                     raw_slot['value'].format_slots(context)
-                elif '{' in raw_slot['value']:
+                elif '{{' in raw_slot['value']:
                     try:
-                        raw_slot['value'] = raw_slot['value'].format(**context)
-                    except AttributeError:
+                        #raw_slot['value'] = raw_slot['value'].format(**context)
+                        raw_slot['value'] = format(raw_slot['value'], context)
+                    except (AttributeError, exceptions.UndefinedError):
                         # assume this frame is designed to only be used as ako
                         # where derived frame defines what's needed in the
                         # format.
@@ -858,7 +870,8 @@ class slot_list:
                 copied_value['value_order'] = start + n * inc
                 if isinstance(copied_value['value'], frame):
                     for name in splice_frame.get_slot_names():
-                        if name not in ('ISA', name_to_splice.upper()):
+                        if name not in ('ISA', 'AKO', 'FRAME_NAME',
+                                        name_to_splice.upper()):
                             slot_to_stuff = splice_frame.get_raw_slot(name)
                             copied_value['value'].insert_raw_slot(name,
                                                                   slot_to_stuff)
