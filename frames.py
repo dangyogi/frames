@@ -34,8 +34,10 @@ class db:
 
     This executes all sql statements on the same cursor.
 
+    The only connection methods availabe are commit(), rollback() and close().
+
     The only cursor method available is to treat the db as an iterator,
-    which iterates on the cursor, and fetchone().
+    which iterates on the cursor, fetchall(), fetchone(), and lastrowid().
     '''
     paramstyles = {'qmark': ('?', "pos"),
                    'numeric': (':{}', "pos"),
@@ -104,8 +106,24 @@ class db:
     def __iter__(self):
         return iter(self.cursor)
 
+    def fetchall(self):
+        return self.cursor.fetchall()
+
     def fetchone(self):
         return self.cursor.fetchone()
+
+    def lastrowid(self):
+        return self.cursor.lastrowid
+
+    def commit(self):
+        self.conn.commit()
+
+    def rollback(self):
+        self.conn.rollback()
+
+    def close(self):
+        self.cursor.close()
+        self.conn.close()
 
 
 class version:
@@ -116,6 +134,7 @@ class version:
         self.lookup_version_ids()
         self.required_versions, self.required_map = \
           self.get_all_required_versions()
+        print("version_obj", self.version_names, self.version_ids, self.required_versions)
 
     def lookup_version_ids(self):
         self.db.execute("""SELECT version_id, status FROM Version
@@ -366,7 +385,7 @@ class version:
         '''
         #print("with_inherited_slots", frame_id)
         ako = raw_frame.get((frame_id, 'AKO', None))
-        if ako and ako['value'][0] == '>':
+        if ako and ako['value'][0] == '$':
             base_frame_id, base_frame = self.get_raw_frame(ako['value'][1:])
             return derive(raw_frame,
                           self.with_inherited_slots(base_frame_id, base_frame))
@@ -397,9 +416,9 @@ class version:
         if slot_versions == self.version_ids:
             if isinstance(value, frame):
                 if hasattr(value, 'frame_name'):
-                    db_value = f">{value.frame_name}"
+                    db_value = f"${value.frame_name}"
                 else:
-                    db_value = f">{value.frame_id}"
+                    db_value = f"${value.frame_id}"
             else:
                 db_value = value
             self.db.execute("""
@@ -427,9 +446,9 @@ class version:
             raise AssertionError("Can not make changes to frozen versions")
         if isinstance(value, frame):
             if hasattr(value, 'frame_name'):
-                db_value = f">{value.frame_name}"
+                db_value = f"${value.frame_name}"
             else:
-                db_value = f">{value.frame_id}"
+                db_value = f"${value.frame_id}"
         else:
             db_value = value
         # Insert the new slot row
@@ -440,9 +459,9 @@ class version:
           VALUES (:frame_id, :name, :name_upper, :value_order, :description,
                   :value, :creation_user_id, datetime("now"));""",
           frame_id=frame_id, name=name, name_upper=name.upper(),
-          value_order=value_order, descrition=description, value=db_value,
+          value_order=value_order, description=description, value=db_value,
           creation_user_id=self.user_id)
-        slot_id = self.db.cursor.lastrowid
+        slot_id = self.db.lastrowid()
 
         # Assign version_ids to new slot
         for version_id in self.version_ids:
@@ -460,38 +479,90 @@ class version:
                     description=description,
                     value=value)
 
-    def create_frame(self, *slots):
+    def create_frame(self, slots):
         r'''Creates a new frame with the slots specified.
+
+        `slots` is {name: value}.
 
         The value_order of any list/tuple values are assigned starting at 1.
 
-        Returns a new frame object.
+        Only called by load_yaml/load_frame.
+
+        Returns the frame_label ("$<frame_id>" or "$<frame_name>") for the new
+        frame.
         '''
         self.db.execute("""SELECT frame_id FROM Slot
                             ORDER BY frame_id DESC
                             LIMIT 1""")
-        frame_id, = self.db.fetchone()
+        rows = self.db.fetchall()
+        if rows:
+            assert len(rows) == 1
+            frame_id = rows[0][0] + 1
+        else:
+            frame_id = 1
 
-        raw_frame = {}
-        ako = None
+        def unwrap_value(slot_name, value, version_obj=self,
+                         current_index=None, value_order_offset=None):
+            r'''A "value_info" object may stand in for a single value.
+
+            This is a dict with the following keys:
+                - value             -- the value it's standing in for (required)
+                - user_id           -- the user_id to store in creation_user_id
+                - required_versions -- list of version names for slot_versions
+                - value_order       -- the offset to apply to value_order
+                                       within a list
+            '''
+            new_offset = None
+            while isinstance(value, dict) and 'value' in value:  # value info
+                user_id = None
+                required_versions = None
+                for key, info in value.items():
+                    key_upper = key.upper()
+                    if key_upper == 'VALUE_ORDER':
+                        new_offset = info
+                    elif key_upper == 'USER_ID':
+                        user_id = info
+                    elif key_upper == 'REQUIRED_VERSIONS':
+                        required_versions = info
+                    elif key_upper != 'VALUE':
+                        raise AssertionError(
+                                f"Unknown key, {key}, on slot {slot_name}")
+                if user_id is not None or required_versions is not None:
+                    version_obj = self.db.at_versions(
+                                    user_id or self.user_id,
+                                    *(required_versions
+                                        if required_versions is not None
+                                        else self.version_names))
+                value = value['value']
+            if current_index is None and new_offset is not None:
+                raise AssertionError(
+                        "value_order not allowed on single-valued "
+                        f"slot {slot_name}")
+            if isinstance(value, dict):   # nested frame
+                value = version_obj.create_frame(value)
+            if new_offset is not None:
+                return version_obj, new_offset - i, value
+            return version_obj, value_order_offset, value
+        frame_label = f"${frame_id}"
         for name, value in slots.items():
+            print("create_frame", name, value)
+            version_obj, _, value = unwrap_value(name, value)
             if not isinstance(value, (list, tuple)):
-                raw_frame[frame_id, name.upper(), None] = \
-                  self.create_slot(frame_id, name, None, value)
-                if name.upper() == "AKO":
-                    ako = value
+                if name.upper() == 'FRAME_NAME':
+                    frame_label = f"${value}"
+                version_obj.create_slot(frame_id, name, None, value)
             else:
-                if name.upper() in ("ISA", "AKO"):
+                if name.upper() in ("ISA", "AKO", "FRAME_NAME"):
                     raise AssertionError(
                             f"{name} slot not allowed to have multiple values")
-                for i, v in enumerate(value, 1):
-                    raw_frame[frame_id, name.upper(), i] = \
-                      self.create_slot(frame_id, name, i, v)
-        if ako is not None:
-            if not isinstance(ako, frame):
-                raise AssertionError("ako slot must have a frame value")
-            raw_frame = derive(raw_frame, ako.as_raw_frame())
-        return frame(frame_id, self, raw_frame)
+                value_order_offset = 1
+                for i, v in enumerate(value):
+                    this_version_obj, value_order_offset, v = \
+                      unwrap_value(name, v, version_obj, i, value_order_offset)
+                    this_version_obj.create_slot(frame_id, name,
+                                                 i + value_order_offset,
+                                                 v)
+        return frame_label
 
 
 def derive(derived, base):
@@ -675,7 +746,7 @@ class frame:
             self.raw_slots[name.upper()] = slot_list(self, name, [raw_slot])
 
     def fill_frame(self):
-        r'''Gets all frames referred to by ">frame" slots.
+        r'''Gets all frames referred to by "$frame" slots.
 
         Replaces the "value" (was the frame_id) with the entire frame.
 
@@ -692,7 +763,7 @@ class frame:
                 while i < len(slot):
                     raw_slot = slot.get_raw_slot(i)
                     #print("index", i, raw_slot)
-                    if raw_slot['value'][0] == '>':
+                    if raw_slot['value'][0] == '$':
                         sub_frame = \
                           self.version_obj.get_frame(raw_slot['value'][1:],
                                                      False)
@@ -709,7 +780,7 @@ class frame:
                     else:
                         i += 1
                 #print("final slot_list", slot)
-            elif slot['value'][0] == '>':
+            elif isinstance(slot['value'], str) and slot['value'][0] == '$':
                 #print("not slot_list")
                 sub_frame = self.version_obj.get_frame(slot['value'][1:], False)
                 if getattr(sub_frame, 'isa', None) == 'splice':
@@ -732,7 +803,8 @@ class frame:
             else:
                 if isinstance(raw_slot['value'], frame):
                     raw_slot['value'].format_slots(context)
-                elif '{{' in raw_slot['value']:
+                elif isinstance(raw_slot['value'], str) and \
+                     '{{' in raw_slot['value']:
                     try:
                         #raw_slot['value'] = raw_slot['value'].format(**context)
                         raw_slot['value'] = format(raw_slot['value'], context)
@@ -883,6 +955,73 @@ class slot_list:
         return new_raw_slots
 
 
+def load_yaml(db, filename):
+    from yaml import load
+    try:
+        from yaml import CLoader as Loader
+    except ImportError:
+        from yaml import Loader
+    with open(filename, 'r') as file:
+        data = load(file, Loader=Loader)
+    for objects in data:
+        if 'users' in objects:
+            load_users(db, objects)
+        elif 'versions' in objects:
+            load_versions(db, objects)
+        elif 'frames' in objects:
+            load_frames(db, objects)
+        else:
+            raise AssertionError(f"Unknown table {objects}")
+    db.commit()
+
+def load_users(db, objects):
+    for user in objects['users']:
+        print("loading user", user['name'])
+        if 'email' not in user:
+            user['email'] = None
+        db.execute("""INSERT INTO User (login, password, name, email)
+                      VALUES (:login, :password, :name, :email)""",
+                   **user)
+
+def load_versions(db, objects):
+    user_name = objects['user']
+    db.execute("SELECT user_id FROM user WHERE name = :user_name",
+               user_name=user_name)
+    user_id, = db.fetchone()
+    for version in objects['versions']:
+        name = version['name']
+        print("loading version", name)
+        db.execute("""
+             INSERT INTO Version (name, name_upper, description,
+                                  creation_user_id, creation_timestamp)
+             VALUES (:name, :name_upper, :description, :creation_user_id,
+                     datetime("now"))""",
+             name=name, name_upper=name.upper(),
+             description=version.get('description'), creation_user_id=user_id)
+        version_id = db.lastrowid()
+        for v in version.get('requires', ()):
+            db.execute("""
+                 INSERT INTO Version_requires
+                   (version_id, required_version_id, creation_user_id,
+                    creation_timestamp)
+                 SELECT :version_id, version_id, :creation_user_id,
+                        datetime("now")
+                   FROM Version
+                  WHERE name = :v""",
+                 version_id=version_id, v=v, creation_user_id=user_id)
+
+
+def load_frames(db, objects):
+    user_name = objects['user']
+    db.execute("SELECT user_id FROM user WHERE name = :user_name",
+               user_name=user_name)
+    user_id, = db.fetchone()
+    version_obj = db_obj.at_versions(user_id, *objects['required_versions'])
+    for frame in objects['frames']:
+        print("loading frame", frame.get('frame_name') or frame.get('name'))
+        version_obj.create_frame(frame)
+
+
 
 if __name__ == "__main__":
     import sys
@@ -892,32 +1031,36 @@ if __name__ == "__main__":
         conn.row_factory = sqlite3.Row
     db_obj = db(sqlite3, "test.db", post_connect=add_row_factory)
 
-    db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")
-    user_id, = db_obj.fetchone()
+    if False:
+        print(load_yaml(db_obj, "frame_data.yaml"))
+    else:
+        db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")
+        user_id, = db_obj.fetchone()
 
-    frame_label = int(sys.argv[1])
-    version_obj = db_obj.at_versions(user_id, *sys.argv[2:])
+        frame_label = int(sys.argv[1])
+        version_obj = db_obj.at_versions(user_id, *sys.argv[2:])
 
-    #print("version_ids", version_obj.version_ids)
-    #print("required_versions", version_obj.required_versions)
-    #print("required_map", version_obj.required_map)
+        #print("version_ids", version_obj.version_ids)
+        #print("required_versions", version_obj.required_versions)
+        #print("required_map", version_obj.required_map)
 
-    def print_slots(frame):
-        print('slot_id', 'frame_id', 'name', 'value')
-        for _, row in sorted(frame.items(), key=lambda item: item[0][1:]):
-            if row['value_order'] is not None:
-                print(row['slot_id'], row['frame_id'],
-                      f"{row['name']}[{row['value_order']}]:", row['value'])
-            else:
-                print(row['slot_id'], row['frame_id'], f"{row['name']}:",
-                      row['value'])
+        def print_slots(frame):
+            print('slot_id', 'frame_id', 'name', 'value')
+            for _, row in sorted(frame.items(), key=lambda item: item[0][1:]):
+                if row['value_order'] is not None:
+                    print(row['slot_id'], row['frame_id'],
+                          f"{row['name']}[{row['value_order']}]:", row['value'])
+                else:
+                    print(row['slot_id'], row['frame_id'], f"{row['name']}:",
+                          row['value'])
 
-    #frame_id, raw_frame = version_obj.get_raw_frame(frame_label)
-    #print_slots(raw_frame)
-    #print_slots(version_obj.with_inherited_slots(frame_id, raw_frame))
+        #frame_id, raw_frame = version_obj.get_raw_frame(frame_label)
+        #print_slots(raw_frame)
+        #print_slots(version_obj.with_inherited_slots(frame_id, raw_frame))
 
-    the_frame = version_obj.get_frame(frame_label)
-    the_frame.dump()
+        the_frame = version_obj.get_frame(frame_label)
+        the_frame.dump()
 
-    #print(version_obj.frame_ids_with_slots(isa='table', name='*'))
-    #print(version_obj.frame_ids_with_slots(name='*'))
+        #print(version_obj.frame_ids_with_slots(isa='table', name='*'))
+        #print(version_obj.frame_ids_with_slots(name='*'))
+

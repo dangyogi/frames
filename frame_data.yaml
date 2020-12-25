@@ -1,0 +1,174 @@
+---
+
+- users:
+  - login: bruce
+    name: bruce
+    password: blahblahblah
+
+- user: bruce
+  versions:
+    - name: start
+    - name: left
+      requires: [start]
+    - name: right
+      requires: [start, left]
+    - name: other
+      requires: [left, right]
+
+- required_versions: [start]
+  user: bruce
+  frames:
+    - frame_name: base_id_column
+      isa: column
+      name: "{{ table.table_name }}_id"
+      type: integer
+      primary_key: True
+      nullable: False
+
+    - frame_name: base_string_no_html_chars_column
+      isa: column
+      type: string
+      max_len: 40
+      nullable: False
+      html_chars_allowed: False
+      display_html: False
+
+    - frame_name: base_string_with_html_chars_column
+      ako: $base_string_no_html_chars_column
+      html_chars_allowed: True
+
+    - frame_name: base_html_string_column
+      ako: $base_string_with_html_chars_column
+      display_html: True
+
+    - frame_name: base_text_no_html_chars_column
+      ako: $base_string_no_html_chars_column
+      max_len: 4096
+
+    - frame_name: base_text_with_html_chars_column
+      ako: $base_string_with_html_chars_column
+      max_len: 4096
+
+    - frame_name: base_html_text_column
+      ako: $base_html_string_column
+      max_len: 4096
+
+    - frame_name: base_password_column
+      ako: $base_string_with_html_chars_column
+      max_len: 1024
+      name: password
+      hide: True
+
+    - frame_name: base_email_column
+      ako: $base_string_with_html_chars_column
+      name: email
+      max_len: 1024
+
+    - frame_name: base_name_column
+      ako: $base_string_no_html_chars_column
+      name: name
+
+    - frame_name: base_description_column
+      ako: $base_text_with_html_chars_column
+      name: description
+
+    - frame_name: base_date_column
+      isa: column
+      type: date
+      name: date
+
+    - frame_name: base_time_column
+      isa: column
+      type: time
+      name: time
+
+    - frame_name: base_timestamp_column
+      isa: column
+      type: timestamp
+      name: timestamp
+
+    - frame_name: base_who_column
+      isa: column
+      type: integer
+      links_to: User(user_id)
+      check_foreign_key: True
+      name: "{{ frame.name_prefix }}_user_id"
+
+    - frame_name: base_when_column
+      ako: $base_timestamp_column
+      name: "{{ frame.name_prefix }}_timestamp"
+
+    - frame_name: base_whodunit_columns
+      isa: splice
+      column:
+        - $base_who_column
+        - $base_when_column
+
+    - frame_name: base_created_columns
+      ako: $base_whodunit_columns
+      name_prefix: created
+      nullable: False
+
+    - frame_name: base_updated_columns
+      ako: $base_whodunit_columns
+      name_prefix: updated
+      nullable: True
+
+    - frame_name: base_audit_columns
+      isa: splice
+      column:
+        - $base_created_columns
+        - $base_updated_columns
+
+
+    - frame_name: base_id_table
+      isa: table
+      column:
+        - $base_id_column
+
+    - frame_name: base_audit_table
+      isa: table
+      column:
+        - value_order: 9000
+          value: $base_audit_columns
+
+    - frame_name: base_id_audit_table
+      ako: $base_id_table
+      column:
+        - value_order: 9000
+          value: $base_audit_columns
+
+    - frame_name: base_name_desc_table
+      ako: $base_id_audit_table
+      column:
+        - value_order: 50
+          value: $base_name_column
+        - $base_description_column
+
+    - table_name: User
+      ako: $base_id_table
+      column:
+        - value_order: 100
+          value:
+            ako: $base_name_column
+            name: login
+        - ako: $base_password_column
+        - ako: $base_name_column
+        - ako: $base_email_column
+          nullable:
+            value: False
+            required_versions: [other]
+          nullable:
+            value: True
+            required_versions: [left, other]
+
+    - table_name: Version
+      ako: $base_name_desc_table
+      column:
+        - value_order: 100
+          value:
+            ako: $base_string_no_html_chars_column
+            name: status
+            max_len: 40
+            default: proposed
+
