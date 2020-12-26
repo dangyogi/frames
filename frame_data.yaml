@@ -14,6 +14,8 @@
       requires: [start]
     - name: other
       requires: [left, right]
+    - name: float_a
+    - name: float_b
 
 - required_versions: [start]
   user: bruce
@@ -170,6 +172,16 @@
             name: version_test
             value: left right
             required_versions: [left, right]
+            description: Just for testing accessing by different versions
+          version_test_float_a:
+            name: version_test
+            value: float_a
+            required_versions: [float_a]
+            description: Just for testing accessing by different versions
+          version_test_float_b:
+            name: version_test
+            value: float_b
+            required_versions: [float_b]
             description: Just for testing accessing by different versions
 
     - table_name: Version
