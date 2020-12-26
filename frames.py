@@ -131,20 +131,32 @@ class version:
         self.db = db
         self.user_id = user_id
         self.version_names = version_names
-        self.lookup_version_ids()
+        self.lookup_version_ids()  # sets self.version_ids to set ids for names
+
+        # self.required_versions is the set of all versions (recursively)
+        #                           required by self
+        # self.required_map      is {version_id: set of required_version_ids}
+        #                           for all version_ids in required_versions
         self.required_versions, self.required_map = \
           self.get_all_required_versions()
+        #print("version", self.required_versions, self.required_map)
 
     def lookup_version_ids(self):
-        self.db.execute("""SELECT version_id, status FROM Version
+        upper_names = {name.upper(): name for name in self.version_names}
+        self.db.execute("""SELECT version_id, name_upper, status
+                             FROM Version
                             WHERE name_upper IN (::version_names)""",
-                        version_names=[v.upper() for v in self.version_names])
+                        version_names=list(upper_names.keys()))
         version_ids = []
         self.frozen = True
         for row in self.db:
-            version_ids.append(row[0])
-            if row[1] == 'proposed':
+            version_ids.append(row['version_id'])
+            if row['status'] == 'proposed':
                 self.frozen = False
+            del upper_names[row['name_upper']]
+        if upper_names:
+            raise AssertionError(
+                    f"Version names not found: {sorted(upper_names.values())}")
         self.version_ids = frozenset(version_ids)
 
     def get_all_required_versions(self, seen=None, depth=0):
@@ -167,11 +179,12 @@ class version:
                         ORDER BY ver_id;""",
                     version_ids=self.version_ids)
         required_map = {version_id: set(req_ver_id
-                                        for ver_id, req_ver_id
+                                        for _, req_ver_id
                                          in required_versions)
                         for version_id, required_versions
                          in groupby(self.db, key=itemgetter(0))}
         #print("required_map", required_map)
+
         def fill_req(req_versions, remaining_req_versions):
             for req_ver in remaining_req_versions:
                 if req_ver in required_map:
@@ -317,7 +330,7 @@ class version:
             #print("matching_slots", matching_slots)
             if len(matching_slots) == 1:
                 matching_slot_ids.append(matching_slots[0][0])
-            else:
+            elif matching_slots:
                 best_match = None  # (slot_id, versions)
                 for slot_id, versions in matching_slots:
                     #print("checking", slot_id, versions)
@@ -325,33 +338,39 @@ class version:
                         if slot_id != slot_id2 and \
                            not self.better_fit(slot_id, versions,
                                                slot_id2, versions2):
+                            #print(versions, "not better than", versions2)
                             # nope, not this one!
                             break
                     else:
                         if best_match is not None:
                             # Conflict!
+                            # How could this happen??
                             raise AssertionError(
-                                    "Slot version conflict between "
-                                    f"{best_match[0]} and {slot_id}")
+                                    "Impossible slot version conflict between "
+                                    f"{matching_slots}")
                         else:
                             best_match = (slot_id, versions)
                 if best_match is not None:
                     matching_slot_ids.append(best_match[0])
+                else:
+                    # None of the versions stands out as being better than all
+                    # of the rest...
+                    matches = ', '.join('{}{}'.format(s, list(v))
+                                        for s, v in matching_slots)
+                    raise AssertionError(
+                            f"Slot version conflict between {matches}")
         return matching_slot_ids
 
     def better_fit(self, slot_id, versions, other_slot_id, other_versions):
         #print("better_fit", versions, other_versions)
         if len(other_versions) > len(versions):
-            # We'll catch any version conflicts when the two versions are
-            # checked in the reverse order...
             #print("better_fit -> False, len(other_versions) > len(versions)")
             return False
         num_better = 0
-        num_worse = 0
         num_matches = 0
         for v in versions:
-            num_matches = 0
             for other_v in other_versions:
+                #print("checking", v, "against", other_v)
                 if v == other_v:
                     num_matches += 1
                 elif v in self.required_map and other_v in self.required_map[v]:
@@ -360,18 +379,15 @@ class version:
                 elif other_v in self.required_map and \
                      v in self.required_map[other_v]:
                     # other_v is better than v
-                    num_worse += 1
-        #print("better_fit", "num_worse", num_worse, "num_better", num_better,
-        #      "num_matches", num_matches)
-        if num_worse and num_better or \
-           num_worse and len(versions) > len(other_versions) or \
-           num_better + num_worse + num_matches < len(other_versions) or \
-           num_matches == len(other_versions) == len(versions):
-            raise AssertionError(
-                    f"Slot version conflict between {other_slot_id} and "
-                    f"{slot_id}")
-        if num_worse:
-            #print("better_fit -> False, num_worse", num_worse)
+                    return False
+        #print("better_fit: num_better", num_better, "num_matches", num_matches)
+        if num_better + num_matches < len(other_versions):
+            # There are some disjoint versions between the two sets of versions
+            return False
+        if num_matches == len(other_versions) == len(versions):
+            # The sets are the identical!
+            # FIX: Should this be an exception because these two slots will
+            #      always fail each other?
             return False
         ans = num_better or len(versions) > len(other_versions)
         #print("better_fit ->", ans, "final")
@@ -512,6 +528,7 @@ class version:
                                        within a list
             '''
             new_offset = None
+            description = None
             while isinstance(value, dict) and 'value' in value:  # value info
                 user_id = None
                 required_versions = None
@@ -523,6 +540,10 @@ class version:
                         user_id = info
                     elif key_upper == 'REQUIRED_VERSIONS':
                         required_versions = info
+                    elif key_upper == 'NAME':
+                        slot_name = info
+                    elif key_upper == 'DESCRIPTION':
+                        description = info
                     elif key_upper != 'VALUE':
                         raise AssertionError(
                                 f"Unknown key, {key}, on slot {slot_name}")
@@ -540,27 +561,38 @@ class version:
             if isinstance(value, dict):   # nested frame
                 _, value = version_obj.create_frame(value)
             if new_offset is not None:
-                return version_obj, new_offset - i, value
-            return version_obj, value_order_offset, value
+                return (slot_name, version_obj, new_offset - i, value,
+                        description)
+            return (slot_name, version_obj, value_order_offset, value,
+                    description)
         frame_label = f"${frame_id}"
         for name, value in slots.items():
             #print("create_frame", name, value)
-            version_obj, _, value = unwrap_value(name, value)
+            slot_name, version_obj, _, value, description = \
+              unwrap_value(name, value)
             if not isinstance(value, (list, tuple)):
-                if name.upper() == 'FRAME_NAME':
+                if slot_name.upper() == 'FRAME_NAME':
                     frame_label = f"${value}"
-                version_obj.create_slot(frame_id, name, None, value)
+                version_obj.create_slot(frame_id, slot_name, None, value,
+                                        description)
             else:
-                if name.upper() in ("ISA", "AKO", "FRAME_NAME"):
+                if slot_name.upper() in ("ISA", "AKO", "FRAME_NAME"):
                     raise AssertionError(
-                            f"{name} slot not allowed to have multiple values")
-                value_order_offset = 1
+                            f"{slot_name} slot not allowed to have "
+                            "multiple values")
+                value_order_offset = 1000
                 for i, v in enumerate(value):
-                    this_version_obj, value_order_offset, v = \
-                      unwrap_value(name, v, version_obj, i, value_order_offset)
-                    this_version_obj.create_slot(frame_id, name,
+                    new_name, this_version_obj, value_order_offset, v, \
+                    description = \
+                      unwrap_value(slot_name, v, version_obj, i,
+                                   value_order_offset)
+                    if new_name != slot_name:
+                        raise AssertionError(
+                                "Not allowed to change slot name in "
+                                f"multi-valued slot {name}")
+                    this_version_obj.create_slot(frame_id, slot_name,
                                                  i + value_order_offset,
-                                                 v)
+                                                 v, description)
         return frame_id, frame_label
 
 
@@ -955,6 +987,51 @@ class slot_list:
 
 
 def load_yaml(db, filename):
+    r'''
+
+    yaml file is a top-list of table blocks.  Each table block is a dict with
+    one of the following keys.  Each of these key's value is a list of dicts,
+    one per new table row.
+
+        - users, each user row is a dict of:
+            - name
+            - login
+            - password
+            - email (optional)
+
+        - versions, each version row is a dict of:
+            - name
+            - description (optional)
+            - requires, list of required version names (optional)
+
+        - frames, each frame has slot_name: value pairs as a dict
+
+    The creation_user_id and creation_timestamp columns are automatically
+    added to the tables that have them.  The user's name is specified as the
+    value of a user: key in the table-level dict.
+
+    The Version_requires table is loaded from the requires: key for each
+    version row.
+
+    The Slot_versions table is loaded from the required_versions: key for the
+    table-level frames dict.
+
+    The slot values for the frames can be simple data values, a dict for a
+    sub-frame, or a list for a multi-valued slot.  Additionally, any of these
+    may optionally be contained in a dict in its value: key, where the other
+    possible keys are:
+
+        - value_order, overrides the default assigned value_order (that start
+          with 1000) for this, and all subsequent, slots within a list.
+        - user, uses a different creation_user_id for this one slot
+        - required_versions, uses different Slot_versions for this one slot
+        - description
+        - name, overrides the name: for this slot to allow multiple versions
+          for the same slot name (which have to use different keys in the
+          frame dict to remain distinct).
+
+    Each of these is optional.
+    '''
     from yaml import load
     try:
         from yaml import CLoader as Loader
@@ -1036,7 +1113,7 @@ if __name__ == "__main__":
         conn.row_factory = sqlite3.Row
     db_obj = db(sqlite3, "test.db", post_connect=add_row_factory)
 
-    if True:
+    if False:
         load_yaml(db_obj, "frame_data.yaml")
     else:
         db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")

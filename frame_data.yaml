@@ -1,8 +1,8 @@
 ---
 
 - users:
-  - login: bruce
-    name: bruce
+  - name: bruce
+    login: bruce
     password: blahblahblah
 
 - user: bruce
@@ -11,7 +11,7 @@
     - name: left
       requires: [start]
     - name: right
-      requires: [start, left]
+      requires: [start]
     - name: other
       requires: [left, right]
 
@@ -19,11 +19,12 @@
   user: bruce
   frames:
     - frame_name: base_id_column
-      isa: column
       name: "{{ table.table_name }}_id"
+      isa: column
       type: integer
       primary_key: True
       nullable: False
+      mutable: False
 
     - frame_name: base_string_no_html_chars_column
       isa: column
@@ -54,49 +55,49 @@
       max_len: 4096
 
     - frame_name: base_password_column
+      name: password
       ako: $base_string_with_html_chars_column
       max_len: 1024
-      name: password
       hide: True
 
     - frame_name: base_email_column
-      ako: $base_string_with_html_chars_column
       name: email
+      ako: $base_string_with_html_chars_column
       max_len: 1024
 
     - frame_name: base_name_column
-      ako: $base_string_no_html_chars_column
       name: name
+      ako: $base_string_no_html_chars_column
 
     - frame_name: base_description_column
-      ako: $base_text_with_html_chars_column
       name: description
+      ako: $base_text_with_html_chars_column
 
     - frame_name: base_date_column
+      name: date
       isa: column
       type: date
-      name: date
 
     - frame_name: base_time_column
+      name: time
       isa: column
       type: time
-      name: time
 
     - frame_name: base_timestamp_column
+      name: timestamp
       isa: column
       type: timestamp
-      name: timestamp
 
     - frame_name: base_who_column
+      name: "{{ frame.name_prefix }}_user_id"
       isa: column
       type: integer
       links_to: User(user_id)
       check_foreign_key: True
-      name: "{{ frame.name_prefix }}_user_id"
 
     - frame_name: base_when_column
-      ako: $base_timestamp_column
       name: "{{ frame.name_prefix }}_timestamp"
+      ako: $base_timestamp_column
 
     - frame_name: base_whodunit_columns
       isa: splice
@@ -108,6 +109,7 @@
       ako: $base_whodunit_columns
       name_prefix: created
       nullable: False
+      mutable: False
 
     - frame_name: base_updated_columns
       ako: $base_whodunit_columns
@@ -124,7 +126,8 @@
     - frame_name: base_id_table
       isa: table
       column:
-        - $base_id_column
+        - value_order: 1
+          value: $base_id_column
 
     - frame_name: base_audit_table
       isa: table
@@ -148,27 +151,48 @@
     - table_name: User
       ako: $base_id_table
       column:
-        - value_order: 100
-          value:
-            ako: $base_name_column
-            name: login
+        - name: login
+          ako: $base_name_column
         - ako: $base_password_column
         - ako: $base_name_column
         - ako: $base_email_column
-          nullable:
-            value: False
-            required_versions: [other]
-          nullable:
-            value: True
-            required_versions: [left, other]
+          version_test_left:
+            name: version_test
+            value: left
+            required_versions: [left]
+            description: Just for testing accessing by different versions
+          version_test_right:
+            name: version_test
+            value: right
+            required_versions: [right]
+            description: Just for testing accessing by different versions
+          version_test_left_right:
+            name: version_test
+            value: left right
+            required_versions: [left, right]
+            description: Just for testing accessing by different versions
 
     - table_name: Version
       ako: $base_name_desc_table
       column:
-        - value_order: 100
-          value:
-            ako: $base_string_no_html_chars_column
-            name: status
-            max_len: 40
-            default: proposed
+        - name: status
+          ako: $base_string_no_html_chars_column
+          max_len: 40
+          default: proposed
+
+    - table_name: Version_requires
+      ako: $base_audit_table
+      column:
+        - name: version_id
+          isa: column
+          type: integer
+          links_to: Version(version_id)
+          check_foreign_key: True
+          nullable: False
+        - name: required_version_id
+          isa: column
+          type: integer
+          links_to: Version(version_id)
+          check_foreign_key: True
+          nullable: False
 

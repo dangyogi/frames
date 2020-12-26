@@ -43,34 +43,6 @@ CREATE UNIQUE INDEX Version_requires_index
     ON Version_requires(version_id, required_version_id);
 
 
-CREATE TABLE Enum_type (
-    enum_id integer primary key not null,
-    name varchar(80) not null,
-    name_upper varchar(80) not null,
-    description varchar(4098),
-    creation_user_id integer references User(user_id) not null,
-    creation_timestamp timestamp not null,
-    updated_user_id integer references User(user_id),
-    updated_timestamp timestamp
-);
-
-CREATE UNIQUE INDEX Enum_type_index ON Enum_type(name_upper);
-
-CREATE TABLE Enum_option (
-    enum_option_id integer primary key not null,
-    enum_id integer references Enum_type(enum_id) not null,
-    name varchar(80) not null,
-    name_upper varchar(80) not null,
-    description varchar(4098),
-    creation_user_id integer references User(user_id) not null,
-    creation_timestamp timestamp not null,
-    updated_user_id integer references User(user_id),
-    updated_timestamp timestamp
-);
-
-CREATE UNIQUE INDEX Enum_option_index ON Enum_option(enum_id, name_upper);
-
-
 -- Conceptually, frames have named slots (identified by frame_id, name).
 -- Each conceptual slot may have multiple values (i.e, a list).  If so, there
 -- are multiple rows with the same slot name, one for each of the multiple
