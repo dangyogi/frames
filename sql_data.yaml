@@ -1,0 +1,88 @@
+---
+
+- user: bruce
+  versions:
+    - name: sql_start
+
+
+- required_versions: [sql_start]
+  user: bruce
+  frames:
+    - frame_name: sql_engine
+      database: $sql_database
+      schema: $sql_schema
+      table: $sql_table
+      column: $sql_column
+
+    - frame_name: sql_database
+      schema: $sql_schema
+      table: $sql_table
+      column: $sql_column
+
+    - frame_name: sql_schema
+      seperator: "\n"
+      create_ddl: |
+        `CREATE SCHEMA {{ frame.schema_name }};
+      drop_ddl: |
+        `DROP SCHEMA {{ frame.schema_name }} CASCADE;
+
+    - frame_name: sql_table
+      seperator: "\n"
+      create_ddl: |
+        `CREATE{{ context.render(generator.pre_table, frame) | space}} TABLE {%
+           if frame.schema_name is defined and
+              frame.schema_name != generator.default_schema -%}
+              {{ frame.schema_name }}.
+        {%- endif %}{{ frame.table_name }}{{ context.render(generator.post_table_name, frame) | space }}
+        {%- if frame.column is defined %} (
+        {{ context.create(frame.column) }}
+        )
+        {%- endif %}
+        {{ context.render(generator.after_columns, frame) | space }};
+      pre_table: |
+        {%- if frame.temporary | default('0') | int %} TEMPORARY 
+        {%- endif %}
+      post_table_name: null
+      after_columns: null
+      drop_ddl: |
+        `DROP TABLE
+         {%- if frame.schema_name is defined and
+                frame.schema_name != generator.default_schema %} {{ frame.schema_name }}.
+         {%- endif %}{{ frame.table_name }};
+
+    - frame_name: sql_column
+      seperator: ",\n"
+      create_ddl: |
+        `    {{ frame.name }} {{ context.render(generator.type, frame) }}
+        {%- if frame.collate is defined %} COLLATE {{ frame.collate }}
+        {%- endif %}
+        {%- if frame.primary_key | int %} PRIMARY KEY
+        {%- endif %}
+        {%- if not (frame.nullable | int) %} NOT NULL
+        {%- endif %}
+        {%- if frame.check_foreign_key | int %} REFERENCES {{ frame.links_to }}
+        {%- endif %}
+      type: |
+        `{{ frame.type -}}
+      drop_ddl: |
+        `ALTER TABLE -- how to access the table I'm in?
+
+    - frame_name: sqlite3
+      ako: $sql_engine
+      schema:
+        ako: $sql_schema
+        default_schema: main
+        builtin_schemas: [main, temp]
+        supports_schemas: False
+      table:
+        ako: $sql_table
+        after_columns: |
+          `{%- if not (frame.with_rowid | default(true) | int) %} WITHOUT ROWID
+          {%- endif %}
+
+    - frame_name: postgresql
+      ako: $sql_engine
+      default_schema: public
+      builtin_schemas: [public]
+      supports_schemas: True
+

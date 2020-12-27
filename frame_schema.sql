@@ -57,7 +57,7 @@ CREATE TABLE Slot (
     name_upper varchar(80) not null,
     value_order real,                   -- must be NULL for single-valued slots
     description varchar(4098),
-    value varchar(4096) not null,
+    value varchar(4096),
       -- ">nnnn" points to frame nnnn
          -- nnnn may be digits for the frame_id, or letters for the frame_name
       -- anything containing a { is a format string

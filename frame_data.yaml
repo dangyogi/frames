@@ -20,16 +20,23 @@
 - required_versions: [start]
   user: bruce
   frames:
+    - frame_name: base_column
+      isa: column
+      primary_key: False
+      nullable: False
+      mutable: True
+      check_foreign_key: False
+
     - frame_name: base_id_column
       name: "{{ table.table_name }}_id"
-      isa: column
+      ako: $base_column
       type: integer
       primary_key: True
       nullable: False
       mutable: False
 
     - frame_name: base_string_no_html_chars_column
-      isa: column
+      ako: $base_column
       type: string
       max_len: 40
       nullable: False
@@ -77,22 +84,22 @@
 
     - frame_name: base_date_column
       name: date
-      isa: column
+      ako: $base_column
       type: date
 
     - frame_name: base_time_column
       name: time
-      isa: column
+      ako: $base_column
       type: time
 
     - frame_name: base_timestamp_column
       name: timestamp
-      isa: column
+      ako: $base_column
       type: timestamp
 
     - frame_name: base_who_column
       name: "{{ frame.name_prefix }}_user_id"
-      isa: column
+      ako: $base_column
       type: integer
       links_to: User(user_id)
       check_foreign_key: True
@@ -125,8 +132,12 @@
         - $base_updated_columns
 
 
-    - frame_name: base_id_table
+    - frame_name: base_table
       isa: table
+      table_name: "{{ frame.frame_name }}"
+
+    - frame_name: base_id_table
+      ako: $base_table
       column:
         - value_order: 1
           value: $base_id_column
@@ -150,14 +161,15 @@
           value: $base_name_column
         - $base_description_column
 
-    - table_name: User
+    - frame_name: User
       ako: $base_id_table
       column:
         - name: login
           ako: $base_name_column
         - ako: $base_password_column
         - ako: $base_name_column
-        - ako: $base_email_column
+        - frame_name: user_email
+          ako: $base_email_column
           version_test_left:
             name: version_test
             value: left
@@ -184,7 +196,7 @@
             required_versions: [float_b]
             description: Just for testing accessing by different versions
 
-    - table_name: Version
+    - frame_name: Version
       ako: $base_name_desc_table
       column:
         - name: status
@@ -192,7 +204,7 @@
           max_len: 40
           default: proposed
 
-    - table_name: Version_requires
+    - frame_name: Version_requires
       ako: $base_audit_table
       column:
         - name: version_id
@@ -208,3 +220,12 @@
           check_foreign_key: True
           nullable: False
 
+    - frame_name: frames_datebase
+      isa: database
+      name: frames
+      schemas:
+        default:
+          tables:
+            - $User
+            - $Version
+            - $Version_requires
