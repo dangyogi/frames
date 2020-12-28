@@ -5,7 +5,7 @@ CREATE TABLE User (
     user_id integer primary key not null,
     login varchar(40) not null,
     password bytes(128) not null,
-    name varchar(80) not null,
+    name varchar(80) collate nocase not null,
     email varchar(80)
 );
 
@@ -14,8 +14,7 @@ CREATE UNIQUE INDEX User_index ON User(login);
 
 CREATE TABLE Version (
     version_id integer primary key not null,
-    name varchar(80) not null,
-    name_upper varchar(80) not null,
+    name varchar(80) collate nocase not null,
     description varchar(4098),
     status varchar(40) not null default "proposed",
        -- proposed (can be changed)
@@ -27,7 +26,7 @@ CREATE TABLE Version (
     updated_timestamp timestamp
 );
 
-CREATE UNIQUE INDEX Version_index ON Version(name_upper);
+CREATE UNIQUE INDEX Version_index ON Version(name);
 
 
 CREATE TABLE Version_requires (
@@ -53,8 +52,7 @@ CREATE UNIQUE INDEX Version_requires_index
 CREATE TABLE Slot (
     slot_id integer primary key not null,
     frame_id integer not null,
-    name varchar(80) not null,
-    name_upper varchar(80) not null,
+    name varchar(80) collate nocase not null,
     value_order real,                   -- must be NULL for single-valued slots
     description varchar(4098),
     value varchar(4096),
@@ -68,7 +66,7 @@ CREATE TABLE Slot (
     updated_timestamp timestamp
 );
 
-CREATE INDEX Slot_index ON Slot(frame_id, name_upper);
+CREATE INDEX Slot_index ON Slot(frame_id, name);
 
 CREATE TABLE Slot_versions (
     slot_id integer references Slot(slot_id) not null,

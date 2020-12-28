@@ -77,6 +77,7 @@
     - frame_name: base_name_column
       name: name
       ako: $base_string_no_html_chars_column
+      collate: NOCASE
 
     - frame_name: base_description_column
       name: description

@@ -195,21 +195,21 @@ class version:
         #print("version", self.required_versions, self.required_map)
 
     def lookup_version_ids(self):
-        upper_names = {name.upper(): name for name in self.version_names}
-        self.db.execute("""SELECT version_id, name_upper, status
+        self.db.execute("""SELECT version_id, name, status
                              FROM Version
-                            WHERE name_upper IN (::version_names)""",
-                        version_names=list(upper_names.keys()))
+                            WHERE name IN (::version_names)""",
+                        version_names=self.version_names)
         version_ids = []
         self.frozen = True
+        names = {name.upper(): name for name in self.version_names}
         for row in self.db:
             version_ids.append(row['version_id'])
             if row['status'] == 'proposed':
                 self.frozen = False
-            del upper_names[row['name_upper']]
-        if upper_names:
+            del names[row['name'].upper()]
+        if names:
             raise AssertionError(
-                    f"Version names not found: {sorted(upper_names.values())}")
+                    f"Version names not found: {sorted(names.values())}")
         self.version_ids = frozenset(version_ids)
 
     def get_all_required_versions(self, seen=None, depth=0):
@@ -265,7 +265,7 @@ class version:
         slot_names = frozenset(k.upper() for k in slots.keys())
         slot_names_with_ako = slot_names.union(['AKO'])
         slots_found = self.select_slots_by_version(
-                        "name_upper IN (::slot_names_with_ako)",
+                        "name IN (::slot_names_with_ako)",
                         slot_names_with_ako=slot_names_with_ako)
 
         # {base_id: {derived_id}}
@@ -316,7 +316,7 @@ class version:
         Where slot is dict with the following keys:
             - frame_id
             - slot_id
-            - name
+            - name  # not upper cased
             - value_order
             - description
             - value
@@ -326,7 +326,7 @@ class version:
             frame_id = int(frame_label)
         else:
             raw_frame = self.select_slots_by_version(
-                          'name_upper = "FRAME_NAME" AND upper(value) = :name',
+                          'name = "FRAME_NAME" AND upper(value) = :name',
                           name=frame_label.upper())
             if not raw_frame:
                 return None, raw_frame
@@ -346,15 +346,15 @@ class version:
                           FROM Slot
                                INNER JOIN Slot_versions USING (slot_id)
                          WHERE {where_exp}
-                         ORDER BY frame_id, name, value_order, slot_id;""",
+                         ORDER BY frame_id, upper(name), value_order, slot_id;
+                       """,
                         **sql_params)
 
         matching_slot_ids = self.select_slot_ids_by_version(self.db)
 
         self.db.execute("""SELECT *
                              FROM Slot
-                            WHERE slot_id IN (::slot_ids)
-                            ORDER BY frame_id, name_upper, value_order;""",
+                            WHERE slot_id IN (::slot_ids);""",
                         slot_ids=matching_slot_ids)
 
         return {(row['frame_id'], row['name'].upper(), row['value_order']):
@@ -375,7 +375,8 @@ class version:
         '''
         matching_slot_ids = []
         for (frame_id, name, value_order), slots \
-         in groupby(raw_slot_rows, key=itemgetter(0, 1, 2)):
+         in groupby(raw_slot_rows,
+                    key=lambda row: (row[0], row[1].upper(), row[2])):
             matching_slots = []  # [(slot_id, version_ids_frozenset)]
             for slot_id, versions in groupby(slots, key=itemgetter(3)):
                 version_ids = frozenset(v[4] for v in versions)
@@ -523,14 +524,12 @@ class version:
             db_value = value
         # Insert the new slot row
         self.db.execute("""
-          INSERT INTO Slot (frame_id, name, name_upper, value_order,
-                            description, value,
+          INSERT INTO Slot (frame_id, name, value_order, value, description,
                             creation_user_id, creation_timestamp)
-          VALUES (:frame_id, :name, :name_upper, :value_order, :description,
-                  :value, :creation_user_id, datetime("now"));""",
-          frame_id=frame_id, name=name, name_upper=name.upper(),
-          value_order=value_order, description=description, value=db_value,
-          creation_user_id=self.user_id)
+          VALUES (:frame_id, :name, :value_order, :value, :description,
+                  :creation_user_id, datetime("now"));""",
+          frame_id=frame_id, name=name, value_order=value_order, value=db_value,
+          description=description, creation_user_id=self.user_id)
         slot_id = self.db.lastrowid()
 
         # Assign version_ids to new slot
@@ -1133,12 +1132,12 @@ def load_versions(db, objects):
         name = version['name']
         print("loading version", name, end='')
         db.execute("""
-             INSERT INTO Version (name, name_upper, description,
+             INSERT INTO Version (name, description,
                                   creation_user_id, creation_timestamp)
-             VALUES (:name, :name_upper, :description, :creation_user_id,
+             VALUES (:name, :description, :creation_user_id,
                      datetime("now"))""",
-             name=name, name_upper=name.upper(),
-             description=version.get('description'), creation_user_id=user_id)
+             name=name, description=version.get('description'),
+             creation_user_id=user_id)
         version_id = db.lastrowid()
         for v in version.get('requires', ()):
             db.execute("""
