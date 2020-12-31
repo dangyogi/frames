@@ -6,12 +6,11 @@ INSERT INTO User (login, name, password) VALUES
 ("{{ initial_user.login }}", "{{ initial_user.name }}", "{{ initial_user.password }}");
 
 -- Versions
-{{ macros.insert("Version", 'name, name_upper',
-     '"{}", "{}"'.format(versions.first_version, versions.first_version.upper())) }}
-{{ macros.insert("Version", 'name, name_upper', '"left", "LEFT"') }}
-{{ macros.insert("Version", 'name, name_upper', '"right", "RIGHT"') }}
-{{ macros.insert("Version", 'name, name_upper', '"top", "TOP"') }}
-{{ macros.insert("Version", 'name, name_upper', '"other", "OTHER"') }}
+{{ macros.insert("Version", 'name', '"{}"'.format(versions.first_version)) }}
+{{ macros.insert("Version", 'name, '"left") }}
+{{ macros.insert("Version", 'name, '"right") }}
+{{ macros.insert("Version", 'name, '"top") }}
+{{ macros.insert("Version", 'name, '"other") }}
 {{ macros.insert("Version_requires", 'version_id, required_version_id', '2, 1')
 }}
 {{ macros.insert("Version_requires", 'version_id, required_version_id', '3, 1')
@@ -260,12 +259,12 @@ INSERT INTO User (login, name, password) VALUES
      ("ako", '>base_email_column'),
      ("frame_name", 'user_email_column'),
 ) }}
-{{ macros.insert("Slot", "frame_id, name, name_upper, value",
-                 '{}, "null", "NULL", False'.format(user.email)) }}
+{{ macros.insert("Slot", "frame_id, name, value",
+                 '{}, "null", False'.format(user.email)) }}
 {{ macros.insert("Slot_versions", "slot_id, version_id",
                  'last_insert_rowid(), 5') }}
-{{ macros.insert("Slot", "frame_id, name, name_upper, value",
-                 '{}, "null", "NULL", True'.format(user.email)) }}
+{{ macros.insert("Slot", "frame_id, name, value",
+                 '{}, "null", True'.format(user.email)) }}
 {{ macros.insert("Slot_versions", "slot_id, version_id",
                  'last_insert_rowid()', 2, 5) }}
 

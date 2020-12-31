@@ -13,6 +13,7 @@
       schema: $sql_schema
       table: $sql_table
       column: $sql_column
+      type: $sql_type
 
     - frame_name: sql_database
       schema: $sql_schema
@@ -53,7 +54,8 @@
     - frame_name: sql_column
       seperator: ",\n"
       create_ddl: |
-        `    {{ frame.name }} {{ context.render(generator.type, frame) }}
+        `    {{ frame.name }} {{
+                context.render(engine.type | attr(frame.type), frame) }}
         {%- if frame.collate is defined %} COLLATE {{ frame.collate }}
         {%- endif %}
         {%- if frame.primary_key | int %} PRIMARY KEY
@@ -62,10 +64,63 @@
         {%- endif %}
         {%- if frame.check_foreign_key | int %} REFERENCES {{ frame.links_to }}
         {%- endif %}
-      type: |
-        `{{ frame.type -}}
       drop_ddl: |
         `ALTER TABLE -- how to access the table I'm in?
+
+    - frame_name: sql_type
+      integer: |
+        `{% if frame.bit_size is defined %}
+          {%- if frame.bit_size == 16 -%}
+          smallint
+          {% elif frame.bit_size == 32 -%}
+          integer
+          {% elif frame.bit_size == 64 -%}
+          bigint
+          {%- else -%}
+          **ERROR** unrecognized bit_size {{ frame.bit_size }} **ERROR**
+          {%- endif %}
+        {% else -%}
+          integer
+        {%- endif %}
+      float: |
+        `{% if frame.bit_size is defined %}
+          {%- if frame.bit_size == 32 -%}
+          real
+          {% elif frame.bit_size == 64 -%}
+          double precision
+          {% else -%}
+          **ERROR** unrecognized bit_size {{ frame.bit_size }} **ERROR**
+          {%- endif %}
+        {% else -%}
+          double precision
+        {%- endif %}
+      decimal: |
+        `{% if frame.num_digits is defined %}
+          {%- if frame.num_decimals is defined -%}
+            decimal({{ frame.num_digits }}, {{ frame.num_decimals }})
+          {% else -%}
+            decimal({{ frame.num_digits }})
+          {%- endif %}
+        {% elif frame.num_decimals is defined -%}
+          **ERROR** must specify num_digits if num_decimals specified **ERROR**
+        {% else -%}
+        decimal
+        {%- endif %}
+      boolean: boolean
+      string: |
+        `{% if frame.max_len is defined -%}
+          varchar({{ frame.max_len }})
+        {%- else -%}
+          varchar
+        {%- endif %}
+      timestamp: |
+        `{% if frame.fractional_second_digits is defined -%}
+          timestamp({{ frame.fractional_second_digits }})
+        {%- else -%}
+          timestamp
+        {%- endif %}
+        {% if frame.with_time_zone is defined and frame.with_time_zone %} with time zone
+        {%- endif %}
 
     - frame_name: sqlite3
       ako: $sql_engine
@@ -85,4 +140,7 @@
       default_schema: public
       builtin_schemas: [public]
       supports_schemas: True
+
+    - frame_name: oracle
+      ako: $sql_engine
 

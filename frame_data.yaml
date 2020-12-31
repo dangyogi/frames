@@ -196,6 +196,9 @@
             value: float_b
             required_versions: [float_b]
             description: Just for testing accessing by different versions
+      index:
+        - on: login
+          unique: true
 
     - frame_name: Version
       ako: $base_name_desc_table
@@ -204,6 +207,9 @@
           ako: $base_string_no_html_chars_column
           max_len: 40
           default: proposed
+      index:
+        - on: name
+          unique: true
 
     - frame_name: Version_requires
       ako: $base_audit_table
@@ -220,6 +226,9 @@
           links_to: Version(version_id)
           check_foreign_key: True
           nullable: False
+      index:
+        - on: [version_id, required_version_id]
+          unique: true
 
     - frame_name: frames_datebase
       isa: database

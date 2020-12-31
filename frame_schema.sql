@@ -15,7 +15,7 @@ CREATE UNIQUE INDEX User_index ON User(login);
 CREATE TABLE Version (
     version_id integer primary key not null,
     name varchar(80) collate nocase not null,
-    description varchar(4098),
+    description varchar(4096),
     status varchar(40) not null default "proposed",
        -- proposed (can be changed)
        -- final (can no longer be changed)
@@ -54,8 +54,8 @@ CREATE TABLE Slot (
     frame_id integer not null,
     name varchar(80) collate nocase not null,
     value_order real,                   -- must be NULL for single-valued slots
-    description varchar(4098),
-    value varchar(4096),
+    description varchar(4096),
+    value varchar(4096) collate nocase,
       -- ">nnnn" points to frame nnnn
          -- nnnn may be digits for the frame_id, or letters for the frame_name
       -- anything containing a { is a format string

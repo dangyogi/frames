@@ -16,8 +16,8 @@ INSERT INTO {{ table }} ({{ columns }}, creation_user_id, creation_timestamp) VA
 
 
 {% macro slot(frame_id, name, value, value_order="NULL") -%}
-{{ insert("Slot", "frame_id, name, name_upper, value_order, value",
-          '{}, "{}", "{}", {}, "{}"'.format(frame_id, name, name.upper(),
+{{ insert("Slot", "frame_id, name, value_order, value",
+          '{}, "{}", "{}", {}, "{}"'.format(frame_id, name,
                                             value_order, value)) }}
 {{ insert("Slot_versions",
           "slot_id, version_id",
