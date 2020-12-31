@@ -16,12 +16,11 @@ Jinja2_env = Environment(trim_blocks=True,
                         #variable_end_string='}',
                          undefined=StrictUndefined,
                         )
-def space(s):
-    if s:
-        return ' ' + s
-    return ''
 
-Jinja2_env.filters['space'] = space
+Jinja2_env.filters['space'] = lambda s: ' ' + s if s else ''
+
+Jinja2_env.filters['aslist'] = \
+  lambda v: v if isinstance(v, (list, tuple)) else [v]
 
 
 def format(templ, ctxt=None, **params):
@@ -54,24 +53,24 @@ class context:
         return format(templ, params, context=self, database=self.database,
                       engine=self.engine, frame=x)
 
-    def render_action(self, action, x):
+    def render_action(self, action, x, **params):
         if isinstance(x, (slot_list, list, tuple)):
             if not x:
                 return ''
             generator = getattr(self.engine, x[0].isa)
             templ = getattr(generator, f"{action}_ddl")[1:]
             return self.render_list(templ, x, generator.seperator,
-                                    generator=generator)
+                                    generator=generator, **params)
         else:
             generator = getattr(self.engine, x.isa)
             templ = getattr(generator, f"{action}_ddl")[1:]
-            return self.render(templ, x, generator=generator)
+            return self.render(templ, x, generator=generator, **params)
 
-    def create(self, x):
-        return self.render_action('create', x)
+    def create(self, x, **params):
+        return self.render_action('create', x, **params)
 
-    def drop(self, x):
-        return self.render_action('drop', x)
+    def drop(self, x, **params):
+        return self.render_action('drop', x, **params)
 
 
 class db:
@@ -852,7 +851,7 @@ class frame:
                     raw_slot = slot.get_raw_slot(i)
                     #print("index", i, raw_slot)
                     if isinstance(raw_slot['value'], str) and \
-                       raw_slot['value'][0] == '$':
+                       raw_slot['value'] and raw_slot['value'][0] == '$':
                         sub_frame = \
                           self.version_obj.get_frame(raw_slot['value'][1:],
                                                      False)
@@ -869,7 +868,8 @@ class frame:
                     else:
                         i += 1
                 #print("final slot_list", slot)
-            elif isinstance(slot['value'], str) and slot['value'][0] == '$':
+            elif isinstance(slot['value'], str) and slot['value'] and \
+                 slot['value'][0] == '$':
                 #print("not slot_list")
                 sub_frame = self.version_obj.get_frame(slot['value'][1:], False)
                 if getattr(sub_frame, 'isa', None) == 'splice':

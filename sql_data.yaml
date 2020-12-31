@@ -14,6 +14,7 @@
       table: $sql_table
       column: $sql_column
       type: $sql_type
+      index: $sql_index
 
     - frame_name: sql_database
       schema: $sql_schema
@@ -39,7 +40,14 @@
         {{ context.create(frame.column) }}
         )
         {%- endif %}
-        {{ context.render(generator.after_columns, frame) | space }};
+        {{ context.render(generator.after_columns, frame) | space }};{%
+          if frame.index is defined %}
+
+
+        {% for index in frame.index %}
+        {{ context.create(index, table=frame) }}
+        {%- endfor -%}
+        {%- endif -%}
       pre_table: |
         {%- if frame.temporary | default('0') | int %} TEMPORARY 
         {%- endif %}
@@ -71,56 +79,66 @@
       integer: |
         `{% if frame.bit_size is defined %}
           {%- if frame.bit_size == 16 -%}
-          smallint
+          SMALLINT
           {% elif frame.bit_size == 32 -%}
-          integer
+          INTEGER
           {% elif frame.bit_size == 64 -%}
-          bigint
+          BIGINT
           {%- else -%}
           **ERROR** unrecognized bit_size {{ frame.bit_size }} **ERROR**
           {%- endif %}
         {% else -%}
-          integer
+          INTEGER
         {%- endif %}
       float: |
         `{% if frame.bit_size is defined %}
           {%- if frame.bit_size == 32 -%}
-          real
+          REAL
           {% elif frame.bit_size == 64 -%}
-          double precision
+          DOUBLE PRECISION
           {% else -%}
           **ERROR** unrecognized bit_size {{ frame.bit_size }} **ERROR**
           {%- endif %}
         {% else -%}
-          double precision
+          DOUBLE PRECISION
         {%- endif %}
       decimal: |
         `{% if frame.num_digits is defined %}
           {%- if frame.num_decimals is defined -%}
-            decimal({{ frame.num_digits }}, {{ frame.num_decimals }})
+            DECIMAL({{ frame.num_digits }}, {{ frame.num_decimals }})
           {% else -%}
-            decimal({{ frame.num_digits }})
+            DECIMAL({{ frame.num_digits }})
           {%- endif %}
         {% elif frame.num_decimals is defined -%}
           **ERROR** must specify num_digits if num_decimals specified **ERROR**
         {% else -%}
-        decimal
+        DECIMAL
         {%- endif %}
       boolean: boolean
       string: |
         `{% if frame.max_len is defined -%}
-          varchar({{ frame.max_len }})
+          VARCHAR({{ frame.max_len }})
         {%- else -%}
-          varchar
+          VARCHAR
         {%- endif %}
       timestamp: |
         `{% if frame.fractional_second_digits is defined -%}
-          timestamp({{ frame.fractional_second_digits }})
+          TIMESTAMP({{ frame.fractional_second_digits }})
         {%- else -%}
-          timestamp
+          TIMESTAMP
         {%- endif %}
-        {% if frame.with_time_zone is defined and frame.with_time_zone %} with time zone
+        {% if frame.with_time_zone is defined and frame.with_time_zone %} WITH TIME ZONE
         {%- endif %}
+
+    - frame_name: sql_index
+      seperator: ''
+      create_ddl: |
+        `CREATE{% if frame.unique | int %} UNIQUE{% endif %} INDEX {%
+           if table.schema is defined %}{{ table.schema }}.{% endif %}
+        {{- table.table_name }}_{{ frame.columns|aslist|join('_') }}_idx ON
+        {{- table.table_name|space }}(
+        {{- frame.columns|aslist|join(', ') }})
+        {%- if frame.where is defined %} WHERE {{ frame.where }}{% endif %};
 
     - frame_name: sqlite3
       ako: $sql_engine
@@ -132,7 +150,7 @@
       table:
         ako: $sql_table
         after_columns: |
-          `{%- if not (frame.with_rowid | default(true) | int) %} WITHOUT ROWID
+          `{%- if not (frame.with_oid | default(true) | int) %} WITHOUT ROWID
           {%- endif %}
 
     - frame_name: postgresql

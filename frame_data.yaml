@@ -162,6 +162,14 @@
           value: $base_name_column
         - $base_description_column
 
+    - frame_name: base_index
+      isa: index
+      unique: false
+
+    - frame_name: base_unique_index
+      ako: $base_index
+      unique: true
+
     - frame_name: User
       ako: $base_id_table
       column:
@@ -197,8 +205,8 @@
             required_versions: [float_b]
             description: Just for testing accessing by different versions
       index:
-        - on: login
-          unique: true
+        - ako: $base_unique_index
+          columns: login
 
     - frame_name: Version
       ako: $base_name_desc_table
@@ -208,8 +216,8 @@
           max_len: 40
           default: proposed
       index:
-        - on: name
-          unique: true
+        - ako: $base_unique_index
+          columns: name
 
     - frame_name: Version_requires
       ako: $base_audit_table
@@ -227,8 +235,8 @@
           check_foreign_key: True
           nullable: False
       index:
-        - on: [version_id, required_version_id]
-          unique: true
+        - ako: $base_unique_index
+          columns: [version_id, required_version_id]
 
     - frame_name: frames_datebase
       isa: database
