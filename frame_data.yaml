@@ -178,6 +178,10 @@
       ako: $base_index
       unique: true
 
+    - frame_name: base_schema
+      isa: schema
+      name: default
+
     - frame_name: User
       ako: $base_id_table
       column:
@@ -279,12 +283,12 @@
         - ako: $base_primary_key
           column: [slot_id, version_id]
 
-    - frame_name: frames_datebase
+    - frame_name: frames_database
       isa: database
       name: frames
-      schemas:
-        default:
-          tables:
+      schema:
+        - ako: $base_schema
+          table:
             - $User
             - $Version
             - $Version_requires

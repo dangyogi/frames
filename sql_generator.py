@@ -1,5 +1,7 @@
 # sql_generator.py
 
+from functools import partial
+
 import frames
 
 
@@ -17,12 +19,18 @@ def aslist(x):
     return [x]
 
 
-def seperate(lines, seperator='\n', first_sep=''):
+def separate(lines, separator='\n', first_sep=''):
     for i, line in enumerate(lines, 1):
         if i == 1:
             yield first_sep, line
         else:
-            yield seperator, line
+            yield separator, line
+
+
+def gen(class_, l, outfile, gen_fn='create', separator='\n'):
+    for sep, x in separate(aslist(l), separator=separator):
+        outfile.write(sep)
+        getattr(class_(x), gen_fn)(outfile)
 
 
 class database:
@@ -33,10 +41,7 @@ class database:
         self.create_database(outfile)
         if hasattr(self.database, 'schema'):
             outfile.write('\n')
-            schema(self.database.schema).create(outfile)
-        if hasattr(self.database, 'table'):
-            outfile.write('\n')
-            table(self.database.table).create(outfile)
+            gen(schema, self.database.schema, outfile)
 
     def create_database(self, outfile):
         r'''Writes through ';\n'.
@@ -59,151 +64,159 @@ class database:
 
 
 class schema:
-    def __init__(self, schemas):
-        self.schemas = schemas
+    def __init__(self, schema):
+        self.schema = schema
+
+    def sql_prefix(self):
+        if self.schema.name.lower() not in ('default',
+                                            self.default_name.lower()):
+            return f"{self.schema.name}."
+        return ''
 
     def create(self, outfile):
-        for sep, s in seperate(aslist(self.schemas)):
-            outfile.write(sep)
-            self.create_schema(s, outfile)
-
-    def create_schema(self, schema, outfile):
         r'''Writes through ';\n'
         '''
-        outfile.write(
-          f"CREATE SCHEMA {schema.name}{self.create_auth(schema)};\n")
+        self.create_schema_ddl(outfile)
+        if hasattr(self.schema, 'table'):
+            gen(partial(table, self), self.schema.table, outfile)
 
-    def create_auth(self, schema):
+    def create_schema_ddl(self, outfile):
+        r'''Writes trailing ';\n'
+        '''
+        outfile.write(
+          f"CREATE SCHEMA {self.schema.name}{self.create_auth()};\n")
+
+    def create_auth(self):
         r'''Returns auth string.
 
         Auth string starts with space and has no termination.
         '''
-        if hasattr(schema, 'authorization'):
-            return f" AUTHORIZATION {schema.authorization}"
+        if hasattr(self.schema, 'authorization'):
+            return f" AUTHORIZATION {self.schema.authorization}"
 
 
 class table:
-    def __init__(self, tables):
-        self.tables = tables
+    def __init__(self, schema, table):
+        self.schema = schema
+        self.table = table
 
     def create(self, outfile):
-        for sep, t in seperate(aslist(self.tables)):
-            outfile.write(sep)
-            self.create_table(t, outfile)
-
-    def create_table(self, table, outfile):
         outfile.write(
-          f"CREATE TABLE{self.pre_name(table)} {table.table_name}"
-	  f"{self.post_name(table)} (\n")
-        if hasattr(table, 'column') or hasattr(table, 'constraint'):
-            if hasattr(table, 'column'):
+          f"CREATE TABLE{self.pre_name()} "
+          f"{self.schema.sql_prefix()}{self.table.table_name}"
+	  f"{self.post_name()} (\n")
+        if hasattr(self.table, 'column') or hasattr(self.table, 'constraint'):
+            if hasattr(self.table, 'column'):
                 # no termination on final line:
-                column(table, table.column).create(outfile)
+                gen(partial(column, self), self.table.column, outfile,
+                    separator=',\n')
 
-                if hasattr(table, 'constraint'):
+                if hasattr(self.table, 'constraint'):
                     outfile.write(',\n')
 
                     # no termination on final line:
-                    table_constraint(table, table.constraint).create(outfile)
+                    gen(partial(table_constraint, self),
+                        self.table.constraint, outfile, separator=',\n')
             else:
                 # no termination on final line:
-                table_constraint(table, table.constraint).create(outfile)
+                gen(partial(table_constraint, self),
+                    self.table.constraint, outfile, separator=',\n')
         outfile.write('\n)')
-        self.create_options(table, outfile)
+        self.create_options(outfile)
         outfile.write(';\n')
-        if hasattr(table, 'index'):
+        if hasattr(self.table, 'index'):
             outfile.write('\n')
-            index(table, table.index).create(outfile)
+            gen(partial(index, self), self.table.index, outfile, separator='')
 
-    def pre_name(self, table):
+    def pre_name(self):
         r'''Returns string with initial space, no termination.
         '''
         return ''
 
-    def post_name(self, table):
+    def post_name(self):
         r'''Returns string with initial space, no termination.
         '''
         return ''
 
-    def create_options(self, table, outfile):
+    def create_options(self, outfile):
         r'''Writes initial space, no termination.
         '''
         pass
 
 
 class column:
-    def __init__(self, table, columns):
+    def __init__(self, table, column):
         self.table = table
-        self.columns = columns
+        self.column = column
 
     def create(self, outfile):
-        for sep, c in seperate(aslist(self.columns), ',\n'):
-            outfile.write(sep)
-            self.create_column(c, outfile)
-
-    def create_column(self, column, outfile):
         r'''Writes lines indented 4 spaces with no termination.
         '''
         outfile.write(
-          f"    {column.name} {sql_type(self.table, column).create()}")
-        if hasattr(column, 'collate'):
-            outfile.write(f" COLLATE {column.collate}")
-        if asbool(column.primary_key):
+          f"    {self.column.name} {sql_type(self).create()}")
+        if hasattr(self.column, 'collate'):
+            outfile.write(f" COLLATE {self.column.collate}")
+        if asbool(self.column.primary_key):
             outfile.write(" PRIMARY KEY")
-        if not asbool(column.nullable):
+        if not asbool(self.column.nullable):
             outfile.write(" NOT NULL")
-        if hasattr(column, 'links_to') and asbool(column.check_foreign_key):
-            outfile.write(f" REFERENCES {column.links_to}")
+        if hasattr(self.column, 'links_to') and \
+           asbool(self.column.check_foreign_key):
+            outfile.write(f" REFERENCES {self.column.links_to}")
 
 
 class sql_type:
-    def __init__(self, table, column):
-        self.table = table
+    def __init__(self, column):
         self.column = column
 
     def create(self):
         r'''Returns a string with no leading or trailing spaces.
         '''
-        return getattr(self, self.column.type.lower())()
+        return getattr(self, self.column.column.type.lower())()
 
     def integer(self):
-        if hasattr(self.column, 'bit_size'):
-            if int(self.column.bit_size) == 16:
+        if hasattr(self.column.column, 'bit_size'):
+            if int(self.column.column.bit_size) == 16:
                 return "SMALLINT"
-            if int(self.column.bit_size) == 32:
+            if int(self.column.column.bit_size) == 32:
                 return "INTEGER"
-            elif int(self.column.bit_size) == 64:
+            elif int(self.column.column.bit_size) == 64:
                 return "BIGINT"
             else:
                 raise AssertionError(
-                        f"{self.table.table_name}.{self.column.name} has "
-                        "unknown 'bit_size' value: {self.column.bit_size}")
+                        f"{self.column.table.table_name}."
+                        f"{self.column.column.name} has "
+                        "unknown 'bit_size' value: "
+                        f"{self.column.column.bit_size}")
         else:
             return "INTEGER"
 
     def float(self):
-        if hasattr(self.column, 'bit_size'):
-            if int(self.column.bit_size) == 32:
+        if hasattr(self.column.column, 'bit_size'):
+            if int(self.column.column.bit_size) == 32:
                 return "REAL"
-            elif int(self.column.bit_size) == 64:
+            elif int(self.column.column.bit_size) == 64:
                 return "DOUBLE PRECISION"
             else:
                 raise AssertionError(
-                        f"{self.table.table_name}.{self.column.name} has "
-                        "unknown 'bit_size' value: {self.column.bit_size}")
+                        f"{self.column.table.table_name}"
+                        f".{self.column.column.name} has "
+                        "unknown 'bit_size' value: "
+                        f"{self.column.column.bit_size}")
         else:
             return "DOUBLE PRECISION"
 
     def decimal(self):
-        if hasattr(self.column, 'num_digits'):
-            if hasattr(self.column, 'num_decimals'):
-                return f"DECIMAL({self.column.num_digits}, " \
-                       f"{self.column.num_decimals})"
+        if hasattr(self.column.column, 'num_digits'):
+            if hasattr(self.column.column, 'num_decimals'):
+                return f"DECIMAL({self.column.column.num_digits}, " \
+                       f"{self.column.column.num_decimals})"
             else:
-                return f"DECIMAL({self.column.num_digits})"
-        elif hasattr(self.column, 'num_decimals'):
+                return f"DECIMAL({self.column.column.num_digits})"
+        elif hasattr(self.column.column, 'num_decimals'):
             raise AssertionError(
-                    f"{self.table.table_name}.{self.column.name} has "
+                    f"{self.column.table.table_name}"
+                    f".{self.column.column.name} has "
                     "'num_decimals', so must also have 'num_digits'")
         return "DECIMAL"
     
@@ -211,37 +224,32 @@ class sql_type:
         return "BOOLEAN"
 
     def string(self):
-        if hasattr(self.column, 'max_len'):
-            return f"VARCHAR({self.column.max_len})"
+        if hasattr(self.column.column, 'max_len'):
+            return f"VARCHAR({self.column.column.max_len})"
         return "VARCHAR"
 
     def timestamp(self):
-        if hasattr(self.column, 'fractional_second_digits'):
-            ans = f"TIMESTAMP({self.column.max_len})"
+        if hasattr(self.column.column, 'fractional_second_digits'):
+            ans = f"TIMESTAMP({self.column.column.max_len})"
         else:
             ans = "TIMESTAMP"
-        if hasattr(self.column, 'with_time_zone') and \
-           asbool(self.column.with_time_zone):
+        if hasattr(self.column.column, 'with_time_zone') and \
+           asbool(self.column.column.with_time_zone):
             return ans + ' WITH TIME ZONE'
         return ans
 
 
 class table_constraint:
-    def __init__(self, table, constraints):
+    def __init__(self, table, constraint):
         self.table = table
-        self.constraints = constraints
+        self.constraint = constraint
 
     def create(self, outfile):
-        for sep, c in seperate(aslist(self.constraints), ',\n'):
-            outfile.write(sep)
-            self.create_constraint(c, outfile)
-    
-    def create_constraint(self, constraint, outfile):
-        getattr(self, constraint.type.lower())(constraint, outfile)
+        getattr(self, self.constraint.type.lower())(outfile)
 
-    def primary_key(self, constraint, outfile):
+    def primary_key(self, outfile):
         outfile.write(
-          f"    PRIMARY KEY ({', '.join(aslist(constraint.column))})")
+          f"    PRIMARY KEY ({', '.join(aslist(self.constraint.column))})")
 
 
 class index:
@@ -250,23 +258,19 @@ class index:
         self.index = index
 
     def create(self, outfile):
-        for i in aslist(self.index):
-            self.create_index(i, outfile)
-    
-    def create_index(self, index, outfile):
-        outfile.write(f"CREATE{self.unique(index)} INDEX ")
-        if hasattr(self.table, 'schema'):
-            outfile.write(self.table.schema + '.')
         outfile.write(
-          f"{self.table.table_name}__{'__'.join(aslist(index.columns))}__idx")
+          f"CREATE{self.unique()} INDEX {self.table.schema.sql_prefix()}"
+          f"{self.table.table.table_name}__{'__'.join(aslist(self.index.columns))}"
+          "__idx")
         outfile.write(
-          f" ON {self.table.table_name}({', '.join(aslist(index.columns))})")
-        if hasattr(index, 'where'):
-            outfile.write(f" WHERE {index.where}")
+          f" ON {self.table.table.table_name}"
+          f"({', '.join(aslist(self.index.columns))})")
+        if hasattr(self.index, 'where'):
+            outfile.write(f" WHERE {self.index.where}")
         outfile.write(';\n')
 
-    def unique(self, index):
-        if asbool(getattr(index, 'unique', 'false')):
+    def unique(self):
+        if asbool(getattr(self.index, 'unique', 'false')):
             return " UNIQUE"
         return ''
 

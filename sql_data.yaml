@@ -23,14 +23,14 @@
       column: $sql_column
 
     - frame_name: sql_schema
-      seperator: "\n"
+      separator: "\n"
       create_ddl: |
         `CREATE SCHEMA {{ frame.schema_name }};
       drop_ddl: |
         `DROP SCHEMA {{ frame.schema_name }} CASCADE;
 
     - frame_name: sql_table
-      seperator: "\n"
+      separator: "\n"
       create_ddl: |
         `CREATE{{ context.render(generator.pre_table, frame) | space}} TABLE {%
            if frame.schema_name is defined and
@@ -66,7 +66,7 @@
          {%- endif %}{{ frame.table_name }};
 
     - frame_name: sql_column
-      seperator: ",\n"
+      separator: ",\n"
       create_ddl: |
         `    {{ frame.name }} {{
                 context.render(engine.type | attr(frame.type), frame) }}
@@ -137,14 +137,14 @@
         {%- endif %}
 
     - frame_name: sql_constraint
-      seperator: ',\n'
+      separator: ',\n'
       create_ddl: |
         `{{ context.render(generator|attr(frame.type), frame, table=table) -}}
       primary_key: |
         `    PRIMARY KEY ({{ frame.column | join(', ')}})
 
     - frame_name: sql_index
-      seperator: ''
+      separator: ''
       create_ddl: |
         `CREATE{% if frame.unique | int %} UNIQUE{% endif %} INDEX {%
            if table.schema is defined %}{{ table.schema }}.{% endif %}

@@ -33,12 +33,12 @@ class context:
         self.database = database
         self.engine = engine
 
-    def render_list(self, templ, l, seperator, **params):
+    def render_list(self, templ, l, separator, **params):
         if templ is None or not l:
             return ''
         if templ[0] == "`":
             templ = templ[1:]
-        return seperator.join(format(templ, params, context=self,
+        return separator.join(format(templ, params, context=self,
                                      database=self.database, engine=self.engine,
                                      frame=element)
                               for element in l)
@@ -59,7 +59,7 @@ class context:
                 return ''
             generator = getattr(self.engine, x[0].isa)
             templ = getattr(generator, f"{action}_ddl")[1:]
-            return self.render_list(templ, x, generator.seperator,
+            return self.render_list(templ, x, generator.separator,
                                     generator=generator, **params)
         else:
             generator = getattr(self.engine, x.isa)
