@@ -1122,7 +1122,7 @@ if __name__ == "__main__":
 
     def add_row_factory(conn):
         conn.row_factory = sqlite3.Row
-    db_obj = db(sqlite3, "test.db", post_connect=add_row_factory)
+    db_obj = db(sqlite3, "frames.db", post_connect=add_row_factory)
 
     if args.command == 'load':
         for filename in args.filenames:

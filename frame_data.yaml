@@ -262,6 +262,7 @@
           ako: $base_string_with_html_chars_column
           max_len: 4096
           collate: nocase
+          nullable: true
       index:
         - ako: $base_index
           columns: [frame_id, name]

@@ -296,7 +296,7 @@ if __name__ == '__main__':
     if args.command == 'create':
         def add_row_factory(conn):
             conn.row_factory = sql_gen_module.db_module.Row
-        db_obj = frames.db(sql_gen_module.db_module, "test.db",
+        db_obj = frames.db(sql_gen_module.db_module, "frames.db",
                            post_connect=add_row_factory)
         db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")
         user_id, = db_obj.fetchone()
