@@ -14,6 +14,7 @@
       table: $sql_table
       column: $sql_column
       type: $sql_type
+      constraint: $sql_constraint
       index: $sql_index
 
     - frame_name: sql_database
@@ -36,8 +37,13 @@
               frame.schema_name != generator.default_schema -%}
               {{ frame.schema_name }}.
         {%- endif %}{{ frame.table_name }}{{ context.render(generator.post_table_name, frame) | space }}
-        {%- if frame.column is defined %} (
+        {%- if frame.column is defined or frame.constraint is defined %} (
+        {% if frame.column is defined %}
         {{ context.create(frame.column) }}
+        {% endif %}
+        {%- if frame.constraint is defined %},
+        {{ context.create(frame.constraint, table=frame) }}
+        {% endif -%}
         )
         {%- endif %}
         {{ context.render(generator.after_columns, frame) | space }};{%
@@ -129,6 +135,13 @@
         {%- endif %}
         {% if frame.with_time_zone is defined and frame.with_time_zone %} WITH TIME ZONE
         {%- endif %}
+
+    - frame_name: sql_constraint
+      seperator: ',\n'
+      create_ddl: |
+        `{{ context.render(generator|attr(frame.type), frame, table=table) -}}
+      primary_key: |
+        `    PRIMARY KEY ({{ frame.column | join(', ')}})
 
     - frame_name: sql_index
       seperator: ''

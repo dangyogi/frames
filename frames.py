@@ -20,7 +20,7 @@ Jinja2_env = Environment(trim_blocks=True,
 Jinja2_env.filters['space'] = lambda s: ' ' + s if s else ''
 
 Jinja2_env.filters['aslist'] = \
-  lambda v: v if isinstance(v, (list, tuple)) else [v]
+  lambda v: v if isinstance(v, (slot_list, list, tuple)) else [v]
 
 
 def format(templ, ctxt=None, **params):
@@ -328,7 +328,7 @@ class version:
                           'name = "FRAME_NAME" AND upper(value) = :name',
                           name=frame_label.upper())
             if not raw_frame:
-                return None, raw_frame
+                raise NameError(f"frame {frame_label} not found")
             frame_id = next(iter(raw_frame))[0]
         return (frame_id,
                 self.select_slots_by_version("frame_id = :frame_id",

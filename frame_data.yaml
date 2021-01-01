@@ -133,6 +133,14 @@
         - $base_updated_columns
 
 
+    - frame_name: base_constraint
+      isa: constraint
+    
+    - frame_name: base_primary_key
+      ako: $base_constraint
+      type: primary_key
+
+
     - frame_name: base_table
       isa: table
       table_name: "{{ frame.frame_name }}"
@@ -144,7 +152,7 @@
           value: $base_id_column
 
     - frame_name: base_audit_table
-      isa: table
+      ako: $base_table
       column:
         - value_order: 9000
           value: $base_audit_columns
@@ -223,20 +231,53 @@
       ako: $base_audit_table
       column:
         - name: version_id
-          isa: column
+          ako: $base_column
           type: integer
           links_to: Version(version_id)
           check_foreign_key: True
-          nullable: False
         - name: required_version_id
-          isa: column
+          ako: $base_column
           type: integer
           links_to: Version(version_id)
           check_foreign_key: True
-          nullable: False
       index:
         - ako: $base_unique_index
           columns: [version_id, required_version_id]
+
+    - frame_name: Slot
+      ako: $base_id_audit_table
+      column:
+        - name: frame_id
+          ako: $base_column
+          type: integer
+        - name: value_order
+          ako: $base_column
+          type: float
+          nullable: true
+        - name: value
+          ako: $base_string_with_html_chars_column
+          max_len: 4096
+          collate: nocase
+      index:
+        - ako: $base_index
+          columns: [frame_id, name]
+
+    - frame_name: Slot_versions
+      ako: $base_audit_table
+      column:
+        - name: slot_id
+          ako: $base_column
+          type: integer
+          links_to: Slot(slot_id)
+          check_foreign_key: True
+        - name: version_id
+          ako: $base_column
+          type: integer
+          links_to: Version(version_id)
+          check_foreign_key: True
+      constraint:
+        - ako: $base_primary_key
+          column: [slot_id, version_id]
 
     - frame_name: frames_datebase
       isa: database
@@ -247,3 +288,5 @@
             - $User
             - $Version
             - $Version_requires
+            - $Slot
+            - $Slot_versions
