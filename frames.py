@@ -5,73 +5,6 @@ from itertools import groupby, chain
 from operator import itemgetter
 from collections import defaultdict, deque
 
-from jinja2 import Environment, StrictUndefined, exceptions
-
-
-Jinja2_env = Environment(trim_blocks=True,
-                         lstrip_blocks=True,
-                         keep_trailing_newline=True,
-                         autoescape=False,
-                        #variable_start_string='{',
-                        #variable_end_string='}',
-                         undefined=StrictUndefined,
-                        )
-
-Jinja2_env.filters['space'] = lambda s: ' ' + s if s else ''
-
-Jinja2_env.filters['aslist'] = \
-  lambda v: v if isinstance(v, (slot_list, list, tuple)) else [v]
-
-
-def format(templ, ctxt=None, **params):
-    if params and ctxt:
-        params.update(ctxt)
-    return Jinja2_env.from_string(templ).render(params or ctxt)
-
-class context:
-    def __init__(self, database, engine):
-        self.database = database
-        self.engine = engine
-
-    def render_list(self, templ, l, separator, **params):
-        if templ is None or not l:
-            return ''
-        if templ[0] == "`":
-            templ = templ[1:]
-        return separator.join(format(templ, params, context=self,
-                                     database=self.database, engine=self.engine,
-                                     frame=element)
-                              for element in l)
-
-    def render(self, templ, x, **params):
-        if templ is None:
-            return ''
-        if templ[0] == "`":
-            templ = templ[1:]
-        #print("render", templ, x)
-        #print("params", params)
-        return format(templ, params, context=self, database=self.database,
-                      engine=self.engine, frame=x)
-
-    def render_action(self, action, x, **params):
-        if isinstance(x, (slot_list, list, tuple)):
-            if not x:
-                return ''
-            generator = getattr(self.engine, x[0].isa)
-            templ = getattr(generator, f"{action}_ddl")[1:]
-            return self.render_list(templ, x, generator.separator,
-                                    generator=generator, **params)
-        else:
-            generator = getattr(self.engine, x.isa)
-            templ = getattr(generator, f"{action}_ddl")[1:]
-            return self.render(templ, x, generator=generator, **params)
-
-    def create(self, x, **params):
-        return self.render_action('create', x, **params)
-
-    def drop(self, x, **params):
-        return self.render_action('drop', x, **params)
-
 
 class db:
     r'''Encapsulates the various database modules.
@@ -897,15 +830,17 @@ class frame:
                     if isinstance(raw_slot['value'], frame):
                         frames.append((raw_slot['value'], f_context))
                     elif isinstance(raw_slot['value'], str) and \
-                         '{{' in raw_slot['value'] and \
+                         '{' in raw_slot['value'] and \
                          raw_slot['value'][0] != "`":
                         try:
-                            raw_slot['value'] = format(raw_slot['value'],
-                                                       f_context)
-                        except (AttributeError, exceptions.UndefinedError):
-                            # assume this frame is designed to only be used as ako
-                            # where derived frame defines what's needed in the
-                            # format.
+                            raw_slot['value'] = raw_slot['value'].format(
+                                                                    **f_context)
+                        except KeyError:  # from format()
+                            # assume this frame is designed to only be used as
+                            # ako where derived frame defines what's needed in
+                            # the format.
+                            print("format_slots got KeyError on",
+                                  raw_slot['value'])
                             pass
             for raw_slot in f.raw_slots.values():
                 format_slot(raw_slot)
@@ -1182,12 +1117,6 @@ if __name__ == "__main__":
         subparser.add_argument('frame_label')
         subparser.add_argument('versions', nargs='+')
         subparser.set_defaults(command=command)
-    parser_ddl = subparsers.add_parser('create_ddl')
-    parser_ddl.add_argument('engine')
-    parser_ddl.add_argument('engine_version')
-    parser_ddl.add_argument('frame_label')
-    parser_ddl.add_argument('versions', nargs='+')
-    parser_ddl.set_defaults(command='create_ddl')
 
     args = parser.parse_args()
 
@@ -1218,23 +1147,13 @@ if __name__ == "__main__":
                     print(row['slot_id'], row['frame_id'], f"{row['name']}:",
                           row['value'])
 
-        if args.command in ('get_frame', 'create_ddl'):
+        if args.command == 'get_frame':
             the_frame = version_obj.get_frame(args.frame_label)
-            if args.command == 'get_frame':
-                the_frame.dump()
-            else:
-                engine_version_obj = db_obj.at_versions(user_id,
-                                                        args.engine_version)
-                the_engine = engine_version_obj.get_frame(args.engine)
-                ctxt = context(the_frame, the_engine)
-                print(ctxt.create(the_frame))
+            the_frame.dump()
         else:
             frame_id, raw_frame = version_obj.get_raw_frame(args.frame_label)
             if args.command == 'get_raw':
                 print_slots(raw_frame)
             elif args.command == 'get_inherited':
                 print_slots(version_obj.with_inherited_slots(frame_id, raw_frame))
-
-    #print(version_obj.frame_ids_with_slots(isa='table', name='*'))
-    #print(version_obj.frame_ids_with_slots(name='*'))
 

@@ -155,7 +155,7 @@ class column:
         outfile.write(
           f"    {self.column.name} {sql_type(self).create()}")
         if hasattr(self.column, 'collate'):
-            outfile.write(f" COLLATE {self.column.collate}")
+            outfile.write(f" COLLATE {self.column.collate.upper()}")
         if asbool(self.column.primary_key):
             outfile.write(" PRIMARY KEY")
         if not asbool(self.column.nullable):

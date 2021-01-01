@@ -28,7 +28,7 @@
       check_foreign_key: False
 
     - frame_name: base_id_column
-      name: "{{ table.table_name }}_id"
+      name: "{table.table_name}_id"
       ako: $base_column
       type: integer
       primary_key: True
@@ -99,14 +99,14 @@
       type: timestamp
 
     - frame_name: base_who_column
-      name: "{{ frame.name_prefix }}_user_id"
+      name: "{frame.name_prefix}_user_id"
       ako: $base_column
       type: integer
       links_to: User(user_id)
       check_foreign_key: True
 
     - frame_name: base_when_column
-      name: "{{ frame.name_prefix }}_timestamp"
+      name: "{frame.name_prefix}_timestamp"
       ako: $base_timestamp_column
 
     - frame_name: base_whodunit_columns
@@ -143,7 +143,7 @@
 
     - frame_name: base_table
       isa: table
-      table_name: "{{ frame.frame_name }}"
+      table_name: "{frame.frame_name}"
 
     - frame_name: base_id_table
       ako: $base_table
