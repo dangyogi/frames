@@ -295,3 +295,12 @@
             - $Version_requires
             - $Slot
             - $Slot_versions
+      sets:
+        - ako: $shared_children
+          link: $Slot_Versions
+          parent: $Slot
+          child: $Version
+        - ako: $shared_children
+          link: $Version_requires
+          parent: $Version
+          child: $Version

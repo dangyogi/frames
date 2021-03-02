@@ -1,6 +1,7 @@
 # sqlite3_sql.py
 
-import sqlite3 as db_module
+from frames import sqlite3_conn as get_conn
+
 
 
 from sql_generator import (
@@ -12,6 +13,8 @@ from sql_generator import (
 
 
 class database(sql_gen_database):
+    can_alter_database = False
+
     def create(self, outfile):
         if hasattr(self.database, 'schema'):
             gen(schema, self.database.schema, outfile)
@@ -19,6 +22,7 @@ class database(sql_gen_database):
 
 class schema(sql_gen_schema):
     default_name = 'main'
+    can_alter_schema = False
 
     def create_schema_ddl(self, outfile):
         r'''Writes trailing ';\n'
@@ -27,6 +31,14 @@ class schema(sql_gen_schema):
 
 
 class table(sql_gen_table):
+    can_alter_table_schema = False
+    can_alter_table_name = True
+    can_alter_column_name = True
+    can_alter_column = False
+    can_drop_column = False
+    can_add_column = True
+    can_alter_index = False
+
     def create_options(self, outfile):
         r'''Writes initial space, no termination.
         '''

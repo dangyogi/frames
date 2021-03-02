@@ -294,13 +294,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.command == 'create':
-        def add_row_factory(conn):
-            conn.row_factory = sql_gen_module.db_module.Row
-        db_obj = frames.db(sql_gen_module.db_module, "frames.db",
-                           post_connect=add_row_factory)
-        db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")
-        user_id, = db_obj.fetchone()
-        version_obj = db_obj.at_versions(user_id, *args.versions)
+        db_conn = sql_gen_module.get_conn()
+        user_id = db_conn.get_user_id('bruce')
+        version_obj = db_conn.at_versions(user_id, *args.versions)
         create(sql_gen_module, version_obj.get_frame(args.frame_label),
                sys.stdout)
     else:

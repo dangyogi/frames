@@ -1,119 +1,55 @@
 # frames.py
 
-import re
 from itertools import groupby, chain
 from operator import itemgetter
 from collections import defaultdict, deque
 
+from db import connection
 
-class db:
-    r'''Encapsulates the various database modules.
 
-    Provides a unified interface to the various forms of sql parameter passing.
+class frame_connection(connection):
+    def get_user(self, user_name):
+        self.execute("SELECT * FROM User WHERE name = :user_name",
+                     user_name=user_name)
+        return self.fetchone()
 
-    This uses two forms of named sql params:
-        - :name  -- for a single value
-        - ::name -- for an iterable of values (used within parens in the SQL)
-          - example: ... WHERE some_col IN (::values) ...
-            with the sql_param: values=[1, 2, 3]
-
-    This executes all sql statements on the same cursor.
-
-    The only connection methods availabe are commit(), rollback() and close().
-
-    The only cursor method available is to treat the db as an iterator,
-    which iterates on the cursor, fetchall(), fetchone(), and lastrowid().
-    '''
-    paramstyles = {'qmark': ('?', "pos"),
-                   'numeric': (':{}', "pos"),
-                   'named': (':{}', "named"),
-                   'format': ('%s', "pos"),
-                   'pyformat': ('%({})s', "named"),
-        }
-    sql_param_re = re.compile(r':([a-zA-Z][a-zA-Z0-9_]*)')
-    sql_param_list_re = re.compile(r'::([a-zA-Z][a-zA-Z0-9_]*)')
-
-    def __init__(self, module, *conn_params, post_connect=None, **conn_kws):
-        self.module = module
-        self.conn = self.module.connect(*conn_params, **conn_kws)
-        if post_connect is not None:
-            post_connect(self.conn)
-        self.cursor = self.conn.cursor()
-        self.sql_param = self.paramstyles[self.module.paramstyle][0]
-        if self.paramstyles[self.module.paramstyle][1] == "pos":
-            self.execute = self.execute_pos
-        else:
-            self.execute = self.execute_named
+    def get_user_id(self, user_name):
+        return self.get_user(user_name)['user_id']
 
     def at_versions(self, user_id, *version_names):
+        r''' Returns a new version object on this db.
+        '''
         return version(self, user_id, *version_names)
-
-    def execute_named(self, sql, **sql_params):
-        new_params = sql_params.copy()
-        def repl_list_fn(match):
-            param_name = match.group(1)
-            param_list = new_params.pop(param_name)
-            ans = []
-            for i, x in enumerate(param_list, 1):
-                x_name = self.sql_param.format(f"param_name_{i}")
-                new_params[x_name] = x
-                ans.append(x_name)
-            return ', '.join(ans)
-        sql = self.sql_param_list_re.sub(repl_list_fn, sql)
-        def repl_fn(match):
-            return self.sql_param.format(match.group(1))
-        self.cursor.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
-
-    def execute_pos(self, sql, **sql_params):
-        param_num = 1
-        new_params = []
-        def repl_list_fn(match):
-            nonlocal param_num
-            param_name = match.group(1)
-            param_list = sql_params[param_name]
-            ans = []
-            for x in param_list:
-                x_name = self.sql_param.format(param_num)
-                new_params.append(x)
-                ans.append(x_name)
-                param_num += 1
-            return ', '.join(ans)
-        sql = self.sql_param_list_re.sub(repl_list_fn, sql)
-        def repl_fn(match):
-            nonlocal param_num
-            param_name = match.group(1)
-            new_params.append(sql_params[param_name])
-            ans = self.sql_param.format(param_num)
-            param_num += 1
-            return ans
-        self.cursor.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
-
-    def __iter__(self):
-        return iter(self.cursor)
-
-    def fetchall(self):
-        return self.cursor.fetchall()
-
-    def fetchone(self):
-        return self.cursor.fetchone()
-
-    def lastrowid(self):
-        return self.cursor.lastrowid
-
-    def commit(self):
-        self.conn.commit()
-
-    def rollback(self):
-        self.conn.rollback()
-
-    def close(self):
-        self.cursor.close()
-        self.conn.close()
 
 
 class version:
-    def __init__(self, db, user_id, *version_names):
-        self.db = db
+    r'''This provides the high-level access to a frames database.
+
+    It pulls together the db connection used to access the database, the
+    user_id for the frames user making requests on this database, and a
+    sequence of version_names that collectively identify which specific
+    version of the database to present.
+
+    Methods:
+
+        - get_frame(frame_label)
+          The frame_label may be a frame id (as int or str), or frame name.
+          Returns a frame object with all inherited slots.
+
+        - get_raw_frame(frame_label)
+          The frame_label may be a frame id (as int or str), or frame name.
+          Returns a single frame (without inherited slots) in a raw format.
+
+        - frame_ids_with_slots(**slots)
+          Returns a set of frame_ids.
+
+        - create_frame(slots)
+          `slots` is {name: value}.
+
+    Updates to the frame are done directly on the frame object.
+    '''
+    def __init__(self, db_conn, user_id, *version_names):
+        self.db_conn = db_conn
         self.user_id = user_id
         self.version_names = version_names
         self.lookup_version_ids()  # sets self.version_ids to set ids for names
@@ -127,14 +63,14 @@ class version:
         #print("version", self.required_versions, self.required_map)
 
     def lookup_version_ids(self):
-        self.db.execute("""SELECT version_id, name, status
-                             FROM Version
-                            WHERE name IN (::version_names)""",
-                        version_names=self.version_names)
+        self.db_conn.execute("""SELECT version_id, name, status
+                                  FROM Version
+                                 WHERE name IN (::version_names)""",
+                             version_names=self.version_names)
         version_ids = []
         self.frozen = True
         names = {name.upper(): name for name in self.version_names}
-        for row in self.db:
+        for row in self.db_conn:
             version_ids.append(row['version_id'])
             if row['status'] == 'proposed':
                 self.frozen = False
@@ -149,25 +85,26 @@ class version:
 
         Returns ({required_version_id}, {version_id: set(required_version_ids)})
         '''
-        self.db.execute("""WITH RECURSIVE req(ver_id, req_ver_id) AS (
-                         SELECT version_id, required_version_id
-                           FROM version_requires
-                          WHERE version_id in (::version_ids)
-                       UNION ALL
-                         SELECT version_id, required_version_id
-                           FROM version_requires
-                                INNER JOIN req
-                          WHERE version_id == req_ver_id
-                       )
+        self.db_conn.execute("""
+          WITH RECURSIVE req(ver_id, req_ver_id)
+            AS (  SELECT version_id, required_version_id
+                    FROM version_requires
+                   WHERE version_id in (::version_ids)
+                UNION ALL
+                  SELECT version_id, required_version_id
+                    FROM version_requires
+                         INNER JOIN req
+                   WHERE version_id == req_ver_id
+              )
 
-                       SELECT ver_id, req_ver_id FROM req
-                        ORDER BY ver_id;""",
-                    version_ids=self.version_ids)
+          SELECT ver_id, req_ver_id FROM req
+           ORDER BY ver_id;""",
+          version_ids=self.version_ids)
         required_map = {version_id: set(req_ver_id
                                         for _, req_ver_id
                                          in required_versions)
                         for version_id, required_versions
-                         in groupby(self.db, key=itemgetter(0))}
+                         in groupby(self.db_conn, key=itemgetter(0))}
         #print("required_map", required_map)
 
         def fill_req(req_versions, remaining_req_versions):
@@ -273,21 +210,20 @@ class version:
 
         Returns a raw_frame.
         '''
-        self.db.execute(f"""
-                        SELECT frame_id, name, value_order, slot_id, version_id
-                          FROM Slot
-                               INNER JOIN Slot_versions USING (slot_id)
-                         WHERE {where_exp}
-                         ORDER BY frame_id, upper(name), value_order, slot_id;
-                       """,
-                        **sql_params)
+        self.db_conn.execute(f"""
+          SELECT frame_id, name, value_order, slot_id, version_id
+            FROM Slot
+                 INNER JOIN Slot_versions USING (slot_id)
+           WHERE {where_exp}
+           ORDER BY frame_id, upper(name), value_order, slot_id;""",
+          **sql_params)
 
-        matching_slot_ids = self.select_slot_ids_by_version(self.db)
+        matching_slot_ids = self.select_slot_ids_by_version(self.db_conn)
 
-        self.db.execute("""SELECT *
-                             FROM Slot
-                            WHERE slot_id IN (::slot_ids);""",
-                        slot_ids=matching_slot_ids)
+        self.db_conn.execute("""SELECT *
+                                  FROM Slot
+                                 WHERE slot_id IN (::slot_ids);""",
+                             slot_ids=matching_slot_ids)
 
         return {(row['frame_id'], row['name'].upper(), row['value_order']):
                 dict(frame_id=row['frame_id'],
@@ -296,7 +232,7 @@ class version:
                      value_order=row['value_order'],
                      description=row['description'],
                      value=row['value'])
-                for row in self.db}
+                for row in self.db_conn}
 
     def select_slot_ids_by_version(self, raw_slot_rows):
         r'''raw_slot_rows is (frame_id, name, value_order, slot_id, version_id)
@@ -412,10 +348,10 @@ class version:
         if self.frozen:
             raise AssertionError("Can not make changes to frozen versions")
 
-        self.db.execute("""SELECT version_id FROM Slot_versions
-                            WHERE slot_id = :slot_id""",
-                        slot_id=slot_id)
-        slot_versions = frozenset(row[0] for row in self.db)
+        self.db_conn.execute("""SELECT version_id FROM Slot_versions
+                                 WHERE slot_id = :slot_id""",
+                             slot_id=slot_id)
+        slot_versions = frozenset(row[0] for row in self.db_conn)
         if slot_versions == self.version_ids:
             if isinstance(value, frame):
                 if hasattr(value, 'frame_name'):
@@ -424,7 +360,7 @@ class version:
                     db_value = f"${value.frame_id}"
             else:
                 db_value = value
-            self.db.execute("""
+            self.db_conn.execute("""
               UPDATE Slot
                  SET value = :value, description = :description,
                      updated_user_id = :user_id,
@@ -433,11 +369,11 @@ class version:
               value=value, description=description, slot_id=slot_id,
               user_id=self.user_id)
             return slot_id
-        self.db.execute("""SELECT frame_id, name, value_order
-                             FROM Slot
-                            WHERE slot_id = :slot_id""",
-                        slot_id=slot_id)
-        frame_id, name, value_order = self.db.fetchone()
+        self.db_conn.execute("""SELECT frame_id, name, value_order
+                                  FROM Slot
+                                 WHERE slot_id = :slot_id""",
+                             slot_id=slot_id)
+        frame_id, name, value_order = self.db_conn.fetchone()
         raw_slot = self.create_slot(frame_id, name, value_order, value,
                                     description)
         return raw_slot['slot_id']
@@ -455,21 +391,23 @@ class version:
         else:
             db_value = value
         # Insert the new slot row
-        self.db.execute("""
+        self.db_conn.execute("""
           INSERT INTO Slot (frame_id, name, value_order, value, description,
                             creation_user_id, creation_timestamp)
           VALUES (:frame_id, :name, :value_order, :value, :description,
                   :creation_user_id, datetime("now"));""",
           frame_id=frame_id, name=name, value_order=value_order, value=db_value,
           description=description, creation_user_id=self.user_id)
-        slot_id = self.db.lastrowid()
+        slot_id = self.db_conn.lastrowid()
 
         # Assign version_ids to new slot
         for version_id in self.version_ids:
-            self.db.execute("""
+            self.db_conn.execute("""
               INSERT INTO Slot_versions (slot_id, version_id,
                                          creation_user_id, creation_timestamp)
-              VALUES (:slot_id, :version_id, :creation_user_id, datetime("now"));""",
+              VALUES (:slot_id, :version_id,
+                      :creation_user_id, datetime("now"));
+              """,
               slot_id=slot_id, version_id=version_id,
               creation_user_id=self.user_id)
 
@@ -492,10 +430,10 @@ class version:
         Returns frame_id, frame_label ("$<frame_id>" or "$<frame_name>") for
         the new frame.
         '''
-        self.db.execute("""SELECT frame_id FROM Slot
-                            ORDER BY frame_id DESC
-                            LIMIT 1""")
-        rows = self.db.fetchall()
+        self.db_conn.execute("""SELECT frame_id FROM Slot
+                                 ORDER BY frame_id DESC
+                                 LIMIT 1""")
+        rows = self.db_conn.fetchall()
         if rows:
             assert len(rows) == 1
             frame_id = rows[0][0] + 1
@@ -534,7 +472,7 @@ class version:
                         raise AssertionError(
                                 f"Unknown key, {key}, on slot {slot_name}")
                 if user_id is not None or required_versions is not None:
-                    version_obj = self.db.at_versions(
+                    version_obj = self.db_conn.at_versions(
                                     user_id or self.user_id,
                                     *(required_versions
                                         if required_versions is not None
@@ -813,6 +751,22 @@ class frame:
                     slot['value'] = sub_frame
 
     def format_slots(self, context=None):
+        r'''Expands format strings in all of the slot values.
+
+        Format strings are any string value the contains a '{' character.
+        These are treated as python format strings and expanded using the python
+        `format` method on the string, passing a map containing:
+
+            - All of the values in the `context` parameter.
+            - All parent frames using their `isa` name.
+            - The immediately containing frame using the name "frame".
+
+        NOTE: This behavior can be turned off by adding a backquote (`) at the
+              start of the string.  The backquote will be stripped from
+              the string, but the string will be otherwise unmolested.
+
+        Does this in place.  Does not return anything.
+        '''
         if context is None:
             context = {}
         frames = deque([(self, context)])
@@ -829,19 +783,21 @@ class frame:
                 else:
                     if isinstance(raw_slot['value'], frame):
                         frames.append((raw_slot['value'], f_context))
-                    elif isinstance(raw_slot['value'], str) and \
-                         '{' in raw_slot['value'] and \
-                         raw_slot['value'][0] != "`":
-                        try:
-                            raw_slot['value'] = raw_slot['value'].format(
-                                                                    **f_context)
-                        except KeyError:  # from format()
-                            # assume this frame is designed to only be used as
-                            # ako where derived frame defines what's needed in
-                            # the format.
-                            print("format_slots got KeyError on",
-                                  raw_slot['value'])
-                            pass
+                    elif isinstance(raw_slot['value'], str):
+                        if raw_slot['value'][0] == "`":
+                            # Drop the leading "`"
+                            raw_slot['value'] = raw_slot['value'][1:]
+                        elif '{' in raw_slot['value']:
+                            try:
+                                raw_slot['value'] = \
+                                  raw_slot['value'].format(**f_context)
+                            except KeyError:  # from format()
+                                # assume this frame is designed to only be used
+                                # as ako where derived frame defines what's
+                                # needed in the format.
+                                print("format_slots got KeyError on",
+                                      raw_slot['value'])
+                                pass
             for raw_slot in f.raw_slots.values():
                 format_slot(raw_slot)
 
@@ -984,7 +940,7 @@ class slot_list:
         return new_raw_slots
 
 
-def load_yaml(db, filename):
+def load_yaml(db_conn, filename):
     r'''
 
     yaml file is a top-list of table blocks.  Each table block is a dict with
@@ -1039,59 +995,59 @@ def load_yaml(db, filename):
         data = load(file, Loader=Loader)
     for objects in data:
         if 'users' in objects:
-            load_users(db, objects)
+            load_users(db_conn, objects)
         elif 'versions' in objects:
-            load_versions(db, objects)
+            load_versions(db_conn, objects)
         elif 'frames' in objects:
-            load_frames(db, objects)
+            load_frames(db_conn, objects)
         else:
             raise AssertionError(f"Unknown table {objects}")
-    db.commit()
+    db_conn.commit()
 
-def load_users(db, objects):
+def load_users(db_conn, objects):
     for user in objects['users']:
         print("loading user", user['name'], end='')
         if 'email' not in user:
             user['email'] = None
-        db.execute("""INSERT INTO User (login, password, name, email)
-                      VALUES (:login, :password, :name, :email)""",
-                   **user)
-        print(' -> user_id', db.lastrowid())
+        db_conn.execute("""INSERT INTO User (login, password, name, email)
+                           VALUES (:login, :password, :name, :email)""",
+                        **user)
+        print(' -> user_id', db_conn.lastrowid())
 
-def load_versions(db, objects):
+def load_versions(db_conn, objects):
     user_name = objects['user']
-    db.execute("SELECT user_id FROM user WHERE name = :user_name",
-               user_name=user_name)
-    user_id, = db.fetchone()
+    db_conn.execute("SELECT user_id FROM user WHERE name = :user_name",
+                    user_name=user_name)
+    user_id, = db_conn.fetchone()
     for version in objects['versions']:
         name = version['name']
         print("loading version", name, end='')
-        db.execute("""
-             INSERT INTO Version (name, description,
-                                  creation_user_id, creation_timestamp)
-             VALUES (:name, :description, :creation_user_id,
-                     datetime("now"))""",
-             name=name, description=version.get('description'),
-             creation_user_id=user_id)
-        version_id = db.lastrowid()
+        db_conn.execute("""
+          INSERT INTO Version (name, description,
+                               creation_user_id, creation_timestamp)
+          VALUES (:name, :description,
+                  :creation_user_id, datetime("now"))""",
+          name=name, description=version.get('description'),
+          creation_user_id=user_id)
+        version_id = db_conn.lastrowid()
         for v in version.get('requires', ()):
-            db.execute("""
-                 INSERT INTO Version_requires
-                   (version_id, required_version_id, creation_user_id,
-                    creation_timestamp)
-                 SELECT :version_id, version_id, :creation_user_id,
-                        datetime("now")
-                   FROM Version
-                  WHERE name = :v""",
-                 version_id=version_id, v=v, creation_user_id=user_id)
+            db_conn.execute("""
+              INSERT INTO Version_requires
+                (version_id, required_version_id, creation_user_id,
+                 creation_timestamp)
+              SELECT :version_id, version_id, :creation_user_id,
+                     datetime("now")
+                FROM Version
+               WHERE name = :v""",
+              version_id=version_id, v=v, creation_user_id=user_id)
         print(' -> version_id', version_id)
 
 
-def load_frames(db, objects):
+def load_frames(db_conn, objects):
     user_name = objects['user']
-    db.execute("SELECT user_id FROM user WHERE name = :user_name",
-               user_name=user_name)
-    user_id, = db.fetchone()
+    db_conn.execute("SELECT user_id FROM user WHERE name = :user_name",
+                    user_name=user_name)
+    user_id, = db_conn.fetchone()
     version_obj = db_obj.at_versions(user_id, *objects['required_versions'])
     for frame in objects['frames']:
         print("loading frame",
@@ -1102,10 +1058,21 @@ def load_frames(db, objects):
         print(' -> frame_id', frame_id)
 
 
+def sqlite3_conn(database_name='frames.db'):
+    import sqlite3
+    from db import db
+
+    def add_row_factory(conn):
+        conn.db_conn.row_factory = sqlite3.Row
+        conn.reset_cursor()
+    db_obj = db(sqlite3, post_connect=add_row_factory)
+    db_obj.set_connection(frame_connection)
+    return db_obj.connect(database_name)
+
+
 
 if __name__ == "__main__":
     import argparse
-    import sqlite3
 
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers()
@@ -1120,18 +1087,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    def add_row_factory(conn):
-        conn.row_factory = sqlite3.Row
-    db_obj = db(sqlite3, "frames.db", post_connect=add_row_factory)
+    db_conn = sqlite3_conn()
 
     if args.command == 'load':
         for filename in args.filenames:
             print("******* loading", filename)
-            load_yaml(db_obj, filename)
+            load_yaml(db_conn, filename)
     else:
-        db_obj.execute("""SELECT user_id FROM User WHERE name = 'bruce';""")
-        user_id, = db_obj.fetchone()
-        version_obj = db_obj.at_versions(user_id, *args.versions)
+        user_id = db_conn.get_user_id('bruce')
+        version_obj = db_conn.at_versions(user_id, *args.versions)
 
         #print("version_ids", version_obj.version_ids)
         #print("required_versions", version_obj.required_versions)
