@@ -56,7 +56,7 @@ CREATE TABLE Slot (
     value_order real,                   -- must be NULL for single-valued slots
     description varchar(4096),
     value varchar(4096) collate nocase,
-      -- ">nnnn" points to frame nnnn
+      -- "$nnnn" points to frame nnnn
          -- nnnn may be digits for the frame_id, or letters for the frame_name
       -- anything containing a { is a format string
       -- "<deleted>" marks a deleted slot

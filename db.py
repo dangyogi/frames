@@ -67,9 +67,9 @@ class connection:
     Provides a default cursor.  The following methods map to that cursor:
 
         - __iter__
-        - execute
-        - fetchone
-        - fetchall
+        - execute(sql, **param_values)
+        - fetchone()
+        - fetchall()
         - lastrowid
 
     This can also be used as a contextmanager (in python "with" statement) to
@@ -113,6 +113,7 @@ class connection:
     def fetchone(self):
         return self.default_cursor.fetchone()
 
+    @property
     def lastrowid(self):
         return self.default_cursor.lastrowid
 

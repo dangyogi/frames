@@ -260,10 +260,10 @@ class index:
     def create(self, outfile):
         outfile.write(
           f"CREATE{self.unique()} INDEX {self.table.schema.sql_prefix()}"
-          f"{self.table.table.table_name}__{'__'.join(aslist(self.index.columns))}"
-          "__idx")
+          f"{self.table.table.table_name}__"
+          f"{'__'.join(aslist(self.index.columns))}__idx\n")
         outfile.write(
-          f" ON {self.table.table.table_name}"
+          f"    ON {self.table.table.table_name}"
           f"({', '.join(aslist(self.index.columns))})")
         if hasattr(self.index, 'where'):
             outfile.write(f" WHERE {self.index.where}")

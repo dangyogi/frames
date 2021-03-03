@@ -182,6 +182,18 @@
       isa: schema
       name: default
 
+    - frame_name: base_1_to_many
+      isa: set
+      type: 1m
+      set_name: "{frame.parent.frame_name}_{frame.type}_{frame.child.frame_name}"
+      many_parents: False
+      many_children: True
+
+    - frame_name: base_many_to_many
+      ako: $base_1_to_many
+      type: mm
+      many_parents: True
+
     - frame_name: User
       ako: $base_id_table
       column:
@@ -249,7 +261,7 @@
           columns: [version_id, required_version_id]
 
     - frame_name: Slot
-      ako: $base_id_audit_table
+      ako: $base_name_desc_table
       column:
         - name: frame_id
           ako: $base_column
@@ -296,11 +308,12 @@
             - $Slot
             - $Slot_versions
       sets:
-        - ako: $shared_children
+        - frame_name: set1
+          ako: $base_many_to_many
           link: $Slot_Versions
           parent: $Slot
           child: $Version
-        - ako: $shared_children
+        - ako: $base_many_to_many
           link: $Version_requires
           parent: $Version
           child: $Version
