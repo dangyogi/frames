@@ -276,7 +276,7 @@ class index:
 
 
 def create(sql_gen, frame, outfile):
-    getattr(sql_gen, frame.isa.lower())(frame).create(outfile)
+    getattr(sql_gen, frame.class_name.lower())(frame).create(outfile)
 
 
 
