@@ -20,15 +20,16 @@
 - required_versions: [start]
   user: bruce
   frames:
+    # Column base frames:
     - frame_name: base_column
-      isa: column
+      class_name: column
       primary_key: False
       nullable: False
       mutable: True
       check_foreign_key: False
 
     - frame_name: base_id_column
-      name: "{table.table_name}_id"
+      name: "{table.name}_id"
       ako: $base_column
       type: integer
       primary_key: True
@@ -110,7 +111,7 @@
       ako: $base_timestamp_column
 
     - frame_name: base_whodunit_columns
-      isa: splice
+      splice: true
       column:
         - $base_who_column
         - $base_when_column
@@ -127,23 +128,25 @@
       nullable: True
 
     - frame_name: base_audit_columns
-      isa: splice
+      splice: true
       column:
         - $base_created_columns
         - $base_updated_columns
 
 
+    # Constraint base frames:
     - frame_name: base_constraint
-      isa: constraint
+      class_name: constraint
     
     - frame_name: base_primary_key
       ako: $base_constraint
       type: primary_key
 
 
+    # Table base frames:
     - frame_name: base_table
-      isa: table
-      table_name: "{frame.frame_name}"
+      class_name: table
+      name: "{frame.frame_name}"
 
     - frame_name: base_id_table
       ako: $base_table
@@ -170,22 +173,28 @@
           value: $base_name_column
         - $base_description_column
 
+
+    # Index base frames:
     - frame_name: base_index
-      isa: index
+      class_name: index
       unique: false
 
     - frame_name: base_unique_index
       ako: $base_index
       unique: true
 
+
+    # Schema base frames:
     - frame_name: base_schema
-      isa: schema
+      class_name: schema
       name: default
 
+
+    # Set base frames:
     - frame_name: base_1_to_many
-      isa: set
+      class_name: set
       type: 1m
-      set_name: "{frame.parent.frame_name}_{frame.type}_{frame.child.frame_name}"
+      name: "{frame.parent.name}_{frame.type}_{frame.child.name}"
       many_parents: False
       many_children: True
 
@@ -194,113 +203,114 @@
       type: mm
       many_parents: True
 
+    # Frame instances (finally)!
     - frame_name: User
-      ako: $base_id_table
+      isa: $base_id_table
       column:
         - name: login
-          ako: $base_name_column
-        - ako: $base_password_column
-        - ako: $base_name_column
+          isa: $base_name_column
+        - isa: $base_password_column
+        - isa: $base_name_column
         - frame_name: user_email
-          ako: $base_email_column
+          isa: $base_email_column
           version_test_left:
-            name: version_test
+            slot_name: version_test
             value: left
             required_versions: [left]
             description: Just for testing accessing by different versions
           version_test_right:
-            name: version_test
+            slot_name: version_test
             value: right
             required_versions: [right]
             description: Just for testing accessing by different versions
           version_test_left_right:
-            name: version_test
+            slot_name: version_test
             value: left right
             required_versions: [left, right]
             description: Just for testing accessing by different versions
           version_test_float_a:
-            name: version_test
+            slot_name: version_test
             value: float_a
             required_versions: [float_a]
             description: Just for testing accessing by different versions
           version_test_float_b:
-            name: version_test
+            slot_name: version_test
             value: float_b
             required_versions: [float_b]
             description: Just for testing accessing by different versions
       index:
-        - ako: $base_unique_index
+        - isa: $base_unique_index
           columns: login
 
     - frame_name: Version
-      ako: $base_name_desc_table
+      isa: $base_name_desc_table
       column:
         - name: status
-          ako: $base_string_no_html_chars_column
+          isa: $base_string_no_html_chars_column
           max_len: 40
           default: proposed
       index:
-        - ako: $base_unique_index
+        - isa: $base_unique_index
           columns: name
 
     - frame_name: Version_requires
-      ako: $base_audit_table
+      isa: $base_audit_table
       column:
         - name: version_id
-          ako: $base_column
+          isa: $base_column
           type: integer
           links_to: Version(version_id)
           check_foreign_key: True
         - name: required_version_id
-          ako: $base_column
+          isa: $base_column
           type: integer
           links_to: Version(version_id)
           check_foreign_key: True
       index:
-        - ako: $base_unique_index
+        - isa: $base_unique_index
           columns: [version_id, required_version_id]
 
     - frame_name: Slot
-      ako: $base_name_desc_table
+      isa: $base_name_desc_table
       column:
         - name: frame_id
-          ako: $base_column
+          isa: $base_column
           type: integer
         - name: value_order
-          ako: $base_column
+          isa: $base_column
           type: float
           nullable: true
         - name: value
-          ako: $base_string_with_html_chars_column
+          isa: $base_string_with_html_chars_column
           max_len: 4096
           collate: nocase
           nullable: true
       index:
-        - ako: $base_index
+        - isa: $base_index
           columns: [frame_id, name]
 
     - frame_name: Slot_versions
-      ako: $base_audit_table
+      isa: $base_audit_table
       column:
         - name: slot_id
-          ako: $base_column
+          isa: $base_column
           type: integer
           links_to: Slot(slot_id)
           check_foreign_key: True
         - name: version_id
-          ako: $base_column
+          isa: $base_column
           type: integer
           links_to: Version(version_id)
           check_foreign_key: True
       constraint:
-        - ako: $base_primary_key
+        - isa: $base_primary_key
           column: [slot_id, version_id]
 
     - frame_name: frames_database
-      isa: database
+      class_name: database
       name: frames
       schema:
-        - ako: $base_schema
+        - isa: $base_schema
           table:
             - $User
             - $Version
@@ -309,11 +319,11 @@
             - $Slot_versions
       sets:
         - frame_name: set1
-          ako: $base_many_to_many
+          isa: $base_many_to_many
           link: $Slot_Versions
           parent: $Slot
           child: $Version
-        - ako: $base_many_to_many
+        - isa: $base_many_to_many
           link: $Version_requires
           parent: $Version
           child: $Version

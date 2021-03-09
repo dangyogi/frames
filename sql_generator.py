@@ -103,7 +103,7 @@ class table:
     def create(self, outfile):
         outfile.write(
           f"CREATE TABLE{self.pre_name()} "
-          f"{self.schema.sql_prefix()}{self.table.table_name}"
+          f"{self.schema.sql_prefix()}{self.table.name}"
 	  f"{self.post_name()} (\n")
         if hasattr(self.table, 'column') or hasattr(self.table, 'constraint'):
             if hasattr(self.table, 'column'):
@@ -184,7 +184,7 @@ class sql_type:
                 return "BIGINT"
             else:
                 raise AssertionError(
-                        f"{self.column.table.table_name}."
+                        f"{self.column.table.name}."
                         f"{self.column.column.name} has "
                         "unknown 'bit_size' value: "
                         f"{self.column.column.bit_size}")
@@ -199,7 +199,7 @@ class sql_type:
                 return "DOUBLE PRECISION"
             else:
                 raise AssertionError(
-                        f"{self.column.table.table_name}"
+                        f"{self.column.table.name}"
                         f".{self.column.column.name} has "
                         "unknown 'bit_size' value: "
                         f"{self.column.column.bit_size}")
@@ -215,7 +215,7 @@ class sql_type:
                 return f"DECIMAL({self.column.column.num_digits})"
         elif hasattr(self.column.column, 'num_decimals'):
             raise AssertionError(
-                    f"{self.column.table.table_name}"
+                    f"{self.column.table.name}"
                     f".{self.column.column.name} has "
                     "'num_decimals', so must also have 'num_digits'")
         return "DECIMAL"
@@ -260,10 +260,10 @@ class index:
     def create(self, outfile):
         outfile.write(
           f"CREATE{self.unique()} INDEX {self.table.schema.sql_prefix()}"
-          f"{self.table.table.table_name}__"
+          f"{self.table.table.name}__"
           f"{'__'.join(aslist(self.index.columns))}__idx\n")
         outfile.write(
-          f"    ON {self.table.table.table_name}"
+          f"    ON {self.table.table.name}"
           f"({', '.join(aslist(self.index.columns))})")
         if hasattr(self.index, 'where'):
             outfile.write(f" WHERE {self.index.where}")

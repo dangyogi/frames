@@ -56,9 +56,11 @@ CREATE TABLE Slot (
     value_order real,                   -- must be NULL for single-valued slots
     description varchar(4096),
     value varchar(4096) collate nocase,
-      -- "$nnnn" points to frame nnnn
+      -- "`foo" quotes the string, so that the value is "foo" regardless of
+         what other characters are in "foo"
+      -- otherwise, "$nnnn" points to frame nnnn
          -- nnnn may be digits for the frame_id, or letters for the frame_name
-      -- anything containing a { is a format string
+      -- anything else containing a { is a python format string
       -- "<deleted>" marks a deleted slot
     creation_user_id integer references User(user_id) not null,
     creation_timestamp timestamp not null,

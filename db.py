@@ -170,7 +170,11 @@ class cursor:
         sql = self.sql_param_list_re.sub(repl_list_fn, sql)
         def repl_fn(match):
             return self.sql_param.format(match.group(1))
-        self.db_cur.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
+        try:
+            self.db_cur.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
+        except self.connection.db.DatabaseError:
+            print("SQL:", self.sql_param_re.sub(repl_fn, sql))
+            raise
 
     def execute_pos(self, sql, **sql_params):
         param_num = 1
@@ -194,5 +198,9 @@ class cursor:
             ans = self.sql_param.format(param_num)
             param_num += 1
             return ans
-        self.db_cur.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
+        try:
+            self.db_cur.execute(self.sql_param_re.sub(repl_fn, sql), new_params)
+        except self.connection.db.DatabaseError:
+            print("SQL:", self.sql_param_re.sub(repl_fn, sql))
+            raise
 
