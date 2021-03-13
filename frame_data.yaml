@@ -203,6 +203,7 @@
       type: mm
       many_parents: True
 
+
     # Frame instances (finally)!
     - frame_name: User
       isa: $base_id_table
