@@ -17,6 +17,7 @@ class database(sql_gen_database):
 
     def create(self, outfile):
         if hasattr(self.database, 'schema'):
+            #print(f"database.create, gen(schema, {len(self.database.schema)}")
             gen(schema, self.database.schema, outfile)
 
 

@@ -14,7 +14,7 @@ def asbool(x):
 
 
 def aslist(x):
-    if isinstance(x, (frames.slot_list, list, tuple)):
+    if isinstance(x, (frames.slot_list, frames.dynamic_slot_list, list, tuple)):
         return x
     return [x]
 
@@ -28,7 +28,9 @@ def separate(lines, separator='\n', first_sep=''):
 
 
 def gen(class_, l, outfile, gen_fn='create', separator='\n'):
+    #print(f"gen({class_}, {l})")
     for sep, x in separate(aslist(l), separator=separator):
+        #print(f"gen got sep {sep!r}, x {x!r})")
         outfile.write(sep)
         getattr(class_(x), gen_fn)(outfile)
 
@@ -77,7 +79,9 @@ class schema:
         r'''Writes through ';\n'
         '''
         self.create_schema_ddl(outfile)
+        #print("schema.create", self.schema.name)
         if hasattr(self.schema, 'table'):
+            #print(f"schema.create, gen(table, {len(self.schema.table)}")
             gen(partial(table, self), self.schema.table, outfile)
 
     def create_schema_ddl(self, outfile):
@@ -276,6 +280,7 @@ class index:
 
 
 def create(sql_gen, frame, outfile):
+    #print("create", frame.class_name)
     getattr(sql_gen, frame.class_name.lower())(frame).create(outfile)
 
 
