@@ -57,7 +57,7 @@ CREATE TABLE Slot (
     description varchar(4096),
     value varchar(4096) collate nocase,
       -- "`foo" quotes the string, so that the value is "foo" regardless of
-         what other characters are in "foo"
+         -- what other characters are in "foo"
       -- otherwise, "$nnnn" points to frame nnnn
          -- nnnn may be digits for the frame_id, or letters for the frame_name
       -- anything else containing a { is a python format string

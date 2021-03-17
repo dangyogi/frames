@@ -7,6 +7,26 @@ from collections import defaultdict, deque
 from db import connection
 
 
+def asbool(x):
+    r'''Converts slot value (a python str) to a python bool.
+    '''
+    if x.lower() == 'true':
+        return True
+    if x.lower() == 'false':
+        return False
+    raise ValueError(f"{x!r} is not a legal boolean value")
+
+
+def aslist(x):
+    r'''Makes sure that `x` is some kind of list.
+
+    If not, creates a list with `x` as the sole element.
+    '''
+    if isinstance(x, (slot_list, dynamic_slot_list, list, tuple)):
+        return x
+    return [x]
+
+
 class frame_connection(connection):
     def get_user(self, user_name):
         self.execute("SELECT * FROM User WHERE name = :user_name",
@@ -23,6 +43,10 @@ class frame_connection(connection):
 
 
 class context:
+    r'''Only used for context for format values.
+
+    Makes keys case insensitive.
+    '''
     def __init__(self, parent):
         self.parent = parent
 
@@ -541,7 +565,7 @@ class version:
         if isinstance(value, frame):
             db_value = f"${value.frame_label}"
         else:
-            db_value = value
+            db_value = str(value)
         # Insert the new slot row
         self.db_conn.execute("""
           INSERT INTO Slot (frame_id, name, value_order, value, description,
@@ -670,6 +694,7 @@ class version:
                         description)
             return (slot_name, version_obj, value_order_offset, value,
                     description)
+
         frame_label = f"${frame_id}"
         for name, value in slots.items():
             #print("create_frame", name, value)
@@ -1217,7 +1242,8 @@ class dynamic_slot_list:
             if value[0] == '$':
                 value = self.frame.version_obj.get_frame(value[1:])
             #print("checking index", i, "got", value)
-            if isinstance(value, frame) and getattr(value, 'splice', False):
+            if isinstance(value, frame) and \
+               asbool(getattr(value, 'splice', 'false')):
                 #print("got splice frame at index", i)
                 self.splice(i, value)
             else:

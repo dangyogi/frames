@@ -210,6 +210,7 @@
       column:
         - name: login
           isa: $base_name_column
+          mutable: False
         - isa: $base_password_column
         - isa: $base_name_column
         - frame_name: user_email
@@ -259,6 +260,7 @@
       column:
         - name: version_id
           isa: $base_column
+          mutable: False
           type: integer
           links_to: Version(version_id)
           check_foreign_key: True
@@ -276,6 +278,7 @@
       column:
         - name: frame_id
           isa: $base_column
+          mutable: False
           type: integer
         - name: value_order
           isa: $base_column
@@ -295,11 +298,13 @@
       column:
         - name: slot_id
           isa: $base_column
+          mutable: False
           type: integer
           links_to: Slot(slot_id)
           check_foreign_key: True
         - name: version_id
           isa: $base_column
+          mutable: False
           type: integer
           links_to: Version(version_id)
           check_foreign_key: True

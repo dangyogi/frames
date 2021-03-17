@@ -2,21 +2,8 @@
 
 from functools import partial
 
-import frames
+from frames import asbool, aslist
 
-
-def asbool(x):
-    if x.lower() == 'true':
-        return True
-    if x.lower() == 'false':
-        return False
-    return bool(int(x))
-
-
-def aslist(x):
-    if isinstance(x, (frames.slot_list, frames.dynamic_slot_list, list, tuple)):
-        return x
-    return [x]
 
 
 def separate(lines, separator='\n', first_sep=''):

@@ -1,13 +1,12 @@
 # sqlite3_sql.py
 
-from frames import sqlite3_conn as get_conn
+from frames import asbool, aslist, sqlite3_conn as get_conn
 
 
 
 from sql_generator import (
-    asbool, aslist, separate, gen, database as sql_gen_database,
-    schema as sql_gen_schema, table as sql_gen_table, column, sql_type,
-    table_constraint, index
+    separate, gen, database as sql_gen_database, schema as sql_gen_schema,
+    table as sql_gen_table, column, sql_type, table_constraint, index
 );
 
 
