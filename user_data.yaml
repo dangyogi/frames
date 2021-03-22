@@ -1,0 +1,7 @@
+---
+
+- users:
+    - add:
+      - name: bruce
+        login: bruce
+        password: blahblahblah

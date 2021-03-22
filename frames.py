@@ -503,6 +503,8 @@ class version:
 
         Doesn't return anything.
         '''
+        # FIX: Do I need to check the slot's versions before doing this
+        #      (vs. creating a new slot)?
         self.db_conn.execute("""UPDATE Slot
                                    SET value = '<DELETED>'
                                  WHERE slot_id = :slot_id""",
@@ -1364,16 +1366,16 @@ def load_yaml(db_conn, filename):
         from yaml import Loader
     with open(filename, 'r') as file:
         data = load(file, Loader=Loader)
-    for objects in data:
-        if 'users' in objects:
-            load_users(db_conn, objects)
-        elif 'versions' in objects:
-            load_versions(db_conn, objects)
-        elif 'frames' in objects:
-            load_frames(db_conn, objects)
-        else:
-            raise AssertionError(f"Unknown table {objects}")
-    db_conn.commit()
+    with db_conn:
+        for objects in data:
+            if 'users' in objects:
+                load_users(db_conn, objects)
+            elif 'versions' in objects:
+                load_versions(db_conn, objects)
+            elif 'frames' in objects:
+                load_frames(db_conn, objects)
+            else:
+                raise AssertionError(f"Unknown table {objects}")
 
 def load_users(db_conn, objects):
     for user in objects['users']:
@@ -1431,6 +1433,7 @@ def sqlite3_conn(database_name='frames.db'):
     def add_row_factory(conn):
         conn.db_conn.row_factory = sqlite3.Row
         conn.reset_cursor()
+        conn.execute('PRAGMA foreign_keys = 1')
     db_obj = db(sqlite3, post_connect=add_row_factory)
     db_obj.set_connection(frame_connection)
     return db_obj.connect(database_name)

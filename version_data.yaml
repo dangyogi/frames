@@ -1,0 +1,16 @@
+---
+
+- user: bruce
+  versions:
+    - add:
+      - name: start
+      - name: left
+        requires: [start]
+      - name: right
+        requires: [start]
+      - name: left_right
+        requires: [left, right]
+      - name: other
+        requires: [left, right]
+      - name: float_a
+      - name: float_b
