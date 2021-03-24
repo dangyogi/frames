@@ -83,26 +83,6 @@ CREATE TABLE Frame_version (
 CREATE UNIQUE INDEX Frame_version_index ON Frame_version(frame_id, version_id);
 
 
-CREATE VIEW Selected_frame AS
-  SELECT target_version_id, *
-    FROM Frame_version fv
-   WHERE version_id = target_version_id
-      OR NOT EXISTS (
-           SELECT NULL
-             FROM Frame_version super
-                  INNER JOIN Version_subsets vs_down
-                     ON vs.superset_id = super.version_id
-                        AND vs.subset_id = fv.version_id
-            WHERE super.frame_id = fv.frame_id
-              AND (super.version_id = target_version_id
-                   OR EXISTS (
-                      SELECT NULL
-                        FROM Version_subsets
-                       WHERE superset_id = target_version_id
-                         AND subset_id = super.version_id)))
-   ORDER BY frame_id;
-
-
 CREATE TABLE Slot (     -- Can not be updated!
     slot_id integer primary key not null,
     frame_id integer references Frame(frame_id) on delete cascade not null,
@@ -116,16 +96,16 @@ CREATE INDEX Slot_index ON Slot(frame_id);
 -- Conceptually, frames have named slots (identified by frame_id, name).
 -- Each conceptual slot may have multiple values (i.e, a list).  If so, there
 -- are multiple rows with the same slot name, one for each of the multiple
--- values.  These are ordered by value_order.
+-- values.  These are ordered by slot_list_order.
 -- Each individual value is versioned.  Thus, versioning is done between rows
--- with the same frame_id, name and value_order; i.e., for each value in a
+-- with the same frame_id, name and slot_list_order; i.e., for each value in a
 -- multi-valued slot.
 CREATE TABLE Slot_version (
     slot_id integer references Slot(slot_id) on delete cascade not null,
     version_id integer references Version(version_id) on delete cascade
                        not null,
     name varchar(80) collate nocase not null,
-    value_order real,                   -- must be NULL for single-valued slots
+    slot_list_order real,              -- must be NULL for single-valued slots
     description varchar(4096),
     value varchar(4096) collate nocase not null,
       -- "`foo" quotes the string, so that the value is "foo" regardless of
@@ -152,24 +132,4 @@ CREATE VIEW Frame_slots AS
          Slot.creation_timestamp AS slot_creation_timestamp
     FROM Slot
          INNER JOIN Slot_version sv USING (slot_id);
-
-
-CREATE VIEW Selected_slots AS
-  SELECT target_version_id, *
-    FROM Frame_slots fs
-   WHERE version_id = target_version_id
-      OR NOT EXISTS (
-           SELECT NULL
-             FROM Slot_version super
-                  INNER JOIN Version_subsets vs
-                     ON vs.superset_id = super.version_id
-                        AND vs.subset_id = fs.version_id
-            WHERE super.slot_id = fs.slot_id
-              AND (super.version_id = target_version_id
-                   OR EXISTS (
-                      SELECT NULL
-                        FROM Version_subsets
-                       WHERE superset_id = target_version_id
-                         AND subset_id = super.version_id)))
-   ORDER BY frame_id, slot_id;
 

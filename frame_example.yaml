@@ -38,37 +38,34 @@
   selected_version: start
   frames:
     - delete:
-      - $foo              # deletes entire frame with frame_label: "foo"
-      - $foo.bar          # deletes entire frame in $foo.bar slot, also deletes
-                          # $foo.bar slot
-      - $foo.bar[baz]     # deletes entire frame in $foo.bar list with
-                          # name == 'baz', also deletes that element from its
-                          # slot_list.
+      - foo              # deletes entire frame with frame_label: "foo"
+
     - change:
-      - $foo:
+      - foo:
         - delete:
             - slot
             - slot[4]
-            - slot[baz]   # frame with frame_name == baz or name == baz
+            - slot[baz-end]   # frame with frame_name == baz or name == baz
         - add:
             slot_name_A: value_A
             slot_name_B:
               - value1
               - value2
               - ...
-            slot_name_C[=>bar]: value  # add value after ([=|bar] before) bar
-                                       # [=>] at end, [=|] at 0
-                                       # list values are spliced in
+            slot_name_C[^bar]: value  # add value before ([bar^] after) bar
+                                      # [^] at end, [^0] at beginning
+                                      # list values are spliced in
         - change:
             slot_name_A: new_value
             slot_name_B:
               name: bob
               value: new_value
             slot_name_C[baz]: new_value
-            slot_name_C[baz]: => bar    # move after (=| before) bar
+            slot_name_C[baz-end]: ^bar    # move before (bar^ after) bar
     - add:
       # Column base frames:
       - frame_name: base_column
+        frame_description: ...
         class_name: column
         primary_key: False
         nullable: False
@@ -198,25 +195,25 @@
       - frame_name: base_id_table
         ako: $base_table
         column:
-          - value_order: 1
+          - slot_list_order: 1
             value: $base_id_column
 
       - frame_name: base_audit_table
         ako: $base_table
         column:
-          - value_order: 9000
+          - slot_list_order: 9000
             value: $base_audit_columns
 
       - frame_name: base_id_audit_table
         ako: $base_id_table
         column:
-          - value_order: 9000
+          - slot_list_order: 9000
             value: $base_audit_columns
 
       - frame_name: base_name_desc_table
         ako: $base_id_audit_table
         column:
-          - value_order: 50
+          - slot_list_order: 50
             value: $base_name_column
           - $base_description_column
 
@@ -327,7 +324,7 @@
             isa: $base_column
             mutable: False
             type: integer
-          - name: value_order
+          - name: slot_list_order
             isa: $base_column
             type: float
             nullable: true

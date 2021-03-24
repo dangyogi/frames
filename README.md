@@ -74,11 +74,11 @@ Slot Lists
 
 These are multi-valued slots, which are treated as ordered lists.  Each value
 in the slot list is separately versioned.  The values are ordered by the
-"value_order" column in the "Slot" database table.
+"slot_list_order" column in the "Slot" database table.
 
 Each value in a slot_list is separately inherited.  The final sort order
-combines all of their value_orders.  One value hides another value only if they
-share the same value_order.
+combines all of their slot_list_orders.  One value hides another value only if
+they share the same slot_list_order.
 
 Also each value in a slot may be separately deleted.
 

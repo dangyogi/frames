@@ -118,7 +118,7 @@
 
     - frame_name: base_created_columns
       ako: $base_whodunit_columns
-      name_prefix: created
+      name_prefix: creation
       nullable: False
       mutable: False
 
@@ -151,25 +151,25 @@
     - frame_name: base_id_table
       ako: $base_table
       column:
-        - value_order: 1
+        - slot_list_order: 1
           value: $base_id_column
 
     - frame_name: base_audit_table
       ako: $base_table
       column:
-        - value_order: 9000
+        - slot_list_order: 9000
           value: $base_audit_columns
 
     - frame_name: base_id_audit_table
       ako: $base_id_table
       column:
-        - value_order: 9000
+        - slot_list_order: 9000
           value: $base_audit_columns
 
     - frame_name: base_name_desc_table
       ako: $base_id_audit_table
       column:
-        - value_order: 50
+        - slot_list_order: 50
           value: $base_name_column
         - $base_description_column
 
@@ -280,7 +280,7 @@
           isa: $base_column
           mutable: False
           type: integer
-        - name: value_order
+        - name: slot_list_order
           isa: $base_column
           type: float
           nullable: true

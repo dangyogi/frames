@@ -8,16 +8,20 @@ except ImportError:
 
 import users
 import versions
+import frames
 
 
-def load_data(filename):
+def load_data(s):
+    return load(s, Loader=Loader)
+
+def read_file(filename):
     with open(filename, 'r') as file:
         return load(file, Loader=Loader)
 
 def load_yaml(conn, filename):
     r'''Caller must use `conn` within "with" statement.
     '''
-    for type in load_data(filename):
+    for type in read_file(filename):
         if 'users' in type:
             users.load_yaml(conn, type)
         elif 'versions' in type:
@@ -38,12 +42,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--db_trace', type=bool, default=False)
     parser.add_argument('--database', default='frames.db')
-    parser.add_argument('filename')
+    parser.add_argument('--string')
+    parser.add_argument('filename', nargs='?')
     args = parser.parse_args()
 
-    import frames_db
-    db_conn = frames_db.sqlite3_db().connect(args.database, trace=args.db_trace)
-
-    with db_conn:
-        load_yaml(db_conn, args.filename)
+    if args.filename:
+        import frames_db
+        db_conn = frames_db.sqlite3_db().connect(args.database,
+                                                 trace=args.db_trace)
+        with db_conn:
+            load_yaml(db_conn, args.filename)
+    else:
+        print(load_data(args.string))
 

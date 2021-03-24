@@ -14,7 +14,7 @@ def get_user_id(conn, login):
 
 
 def load_yaml(conn, users):
-    r'''Caller must do commit on conn.
+    r'''Caller must "with" conn prior to calling `load_yaml`.
 
     `users` is the top-level dict for all user updates.
     '''

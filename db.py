@@ -64,6 +64,7 @@ class connection:
         self.db_conn = db_conn
         self.trace = trace
         self.default_cursor = self.cursor(self.trace)
+        self.trans_attr_names = set()
 
     def reset_cursor(self):
         self.default_cursor.close()
@@ -72,13 +73,38 @@ class connection:
     def __getattr__(self, attr_name):
         return getattr(self.db_conn, attr_name)
 
+    def set_trans_attr(self, name, value):
+        #print("set_trans_attr setting", name, value)
+        setattr(self, name, value)
+        self.trans_attr_names.add(name)
+
+    def del_trans_attr(self, name):
+        #print("del_trans_attr deleting", name)
+        delattr(self, name)
+        self.trans_attr_names.remove(name)
+
+    def trans_attrs(self, **attr_values):
+        class context:
+            def __enter__(self_c):
+                for name, value in attr_values.items():
+                    self.set_trans_attr(name, value)
+
+            def __exit__(self_c, exc_type, exc_val, exc_tb):
+                for name in attr_values.keys():
+                    self.del_trans_attr(name)
+                return False
+        return context()
+
     def __enter__(self):
         self.default_cursor.execute('BEGIN')
-        self.now = datetime.utcnow()
+        self.set_trans_attr('now', datetime.utcnow())
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        del self.now
+        for attr in self.trans_attr_names:
+            #print("__exit__ deleting", attr)
+            delattr(self, attr)
+        self.trans_attr_names = set()
         if exc_type is None and exc_val is None:
             self.commit()
         else:
@@ -105,6 +131,9 @@ class connection:
 
     def select_1_value(self, table_name, column, **where):
         return self.default_cursor.select_1_value(table_name, column, **where)
+
+    def exists(self, table_name, **where):
+        return self.default_cursor.exists(table_name, **where)
 
     def insert(self, table_name, **values):
         return self.default_cursor.insert(table_name, **values)
@@ -274,7 +303,7 @@ class cursor:
                         f"More than one row found in {table_name}")
         if i:
             if self.trace:
-                print("got", row)
+                print("got", tuple(row))
             return row
         raise AssertionError(f"No row found in {table_name}")
 
@@ -297,6 +326,14 @@ class cursor:
         if self.trace:
             print("got", value)
         return value
+
+    def exists(self, table_name, **where):
+        return bool(
+                 next(
+                   iter(
+                     self.connection.select_1_column(table_name, "'True'",
+                                                     **where)),
+                   False))
 
     def where(self, exp, indent=0):
         r'''Takes dict of {col_name: value}; returns sql_lines, params.
@@ -331,7 +368,7 @@ class cursor:
                f"""VALUES ({', '.join(f":{key}" for key in values.keys())})""",
                **values)
         if self.trace:
-            print("row id", self.lastrowid)
+            print("new", table_name, "id", self.lastrowid)
 
     def insert_many(self, table_name, **values):
         r'''Insert many rows into table_name.
@@ -369,7 +406,7 @@ class cursor:
         parened_row = f"({one_row})"
         rows = [parened_row.format(row_num)
                 for row_num in range(1, num_rows + 1)]
-        values = ',\n       '.join(rows)
+        values = ',\n          '.join(rows)
         self.execute(f"INSERT INTO {table_name} ({col_names})",
                      f"SELECT {', '.join(select_columns)}, *",
                      f"  FROM (VALUES",

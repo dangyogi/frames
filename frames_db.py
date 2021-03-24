@@ -13,7 +13,7 @@ class connection(db.connection):
         return users.get_user_id(self, login)
 
 
-def sqlite3_db(database_name='frames.db'):
+def sqlite3_db():
     import sqlite3
 
     class sqlite3_connection(connection):
