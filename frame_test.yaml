@@ -1,0 +1,146 @@
+---
+
+- users:
+    - add:
+      - name: bruce
+        login: bruce
+        password: blahblahblah
+
+
+- user: bruce
+  versions:
+    - add:
+      - name: bottom
+      - name: left
+        requires: [bottom]
+      - name: right
+        requires: [bottom]
+      - name: top
+        requires: [left, right]
+      - name: top2
+        requires: [left, right]
+      - name: other_a
+      - name: other_b
+
+
+- user: bruce
+  selected_version: bottom
+  frames:
+    - add:
+      - frame_name: bottom_frame
+        frame_description: bottom desc for bottom_frame
+      
+      - frame_name: left_bottom
+        frame_description: bottom desc for left_bottom
+        isa: $bottom_frame      
+
+      - frame_name: right_bottom
+        frame_description: bottom desc for right_bottom
+        ako: $bottom_frame
+
+      - frame_name: left_right_bottom
+        frame_description: bottom desc for left_right_bottom
+        ako: $bottom_frame
+
+      - frame_name: top_bottom
+        frame_description: bottom desc for top_bottom
+        isa: $bottom_frame      
+        ako: $bottom_frame
+
+      - frame_name: top_left_bottom
+        frame_description: bottom desc for top_bottom
+        isa: $bottom_frame      
+        ako: $bottom_frame
+
+      - frame_name: top_left_right_bottom
+        frame_description: bottom desc for top_bottom
+        isa: $bottom_frame      
+        ako: $bottom_frame
+
+
+- user: bruce
+  selected_version: left
+  frames:
+    - add:
+      - frame_name: left_frame
+        frame_description: left desc for left_frame
+        ako: $left_bottom
+
+      - frame_name: top_left_frame
+        frame_description: left desc for top_left_frame
+        ako: $left_bottom
+
+      - frame_name: top_left_right_frame
+        frame_description: left desc for top_left_right_frame
+        ako: $left_bottom
+
+    - change:
+      - left_bottom:
+          - change:
+              frame_description: left desc for left_bottom
+
+      - left_right_bottom:
+          - change:
+              frame_description: left desc for left_right_bottom
+
+      - top_left_bottom:
+          - change:
+              frame_description: left desc for top_left_bottom
+
+      - top_left_right_bottom:
+          - change:
+              frame_description: left desc for top_left_right_bottom
+
+
+- user: bruce
+  selected_version: right
+  frames:
+    - add:
+      - frame_name: top_left_right_frame
+        frame_description: right desc for top_left_right_frame
+        ako: $left_bottom
+
+    - change:
+      - right_bottom:
+          - change:
+              frame_description: right desc for right_bottom
+
+      - left_right_bottom:
+          - change:
+              frame_description: right desc for left_right_bottom
+
+      - top_left_right_bottom:
+          - change:
+              frame_description: right desc for top_left_right_bottom
+
+
+- user: bruce
+  selected_version: top
+  frames:
+    - add:
+      - frame_name: top_frame
+        frame_description: top desc for top_frame
+        ako: $bottom_frame
+
+      - frame_name: top_left_right_bottom
+        frame_description: top desc for top_left_right_bottom
+        isa: $bottom_frame      
+        ako: $bottom_frame
+
+      - frame_name: top_left_right_frame
+        frame_description: top desc for top_left_right_frame
+        ako: $left_bottom
+
+    - change:
+      - top_bottom:
+          - change:
+              frame_description: top desc for top_bottom
+
+      - top_left_bottom:
+          - change:
+              frame_description: top desc for top_left_bottom
+
+      - top_left_frame:
+          - change:
+              frame_description: top desc for top_left_frame
+

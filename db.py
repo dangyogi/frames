@@ -64,7 +64,7 @@ class connection:
         self.db_conn = db_conn
         self.trace = trace
         self.default_cursor = self.cursor(self.trace)
-        self.trans_attr_names = set()
+        self.trans_attr_names = []  # [set()]
 
     def reset_cursor(self):
         self.default_cursor.close()
@@ -75,13 +75,13 @@ class connection:
 
     def set_trans_attr(self, name, value):
         #print("set_trans_attr setting", name, value)
+        self.trans_attr_names[-1].add(name)
         setattr(self, name, value)
-        self.trans_attr_names.add(name)
 
     def del_trans_attr(self, name):
         #print("del_trans_attr deleting", name)
+        self.trans_attr_names[-1].remove(name)
         delattr(self, name)
-        self.trans_attr_names.remove(name)
 
     def trans_attrs(self, **attr_values):
         class context:
@@ -96,19 +96,27 @@ class connection:
         return context()
 
     def __enter__(self):
-        self.default_cursor.execute('BEGIN')
-        self.set_trans_attr('now', datetime.utcnow())
+        r'''Nested calls unwind their attr_names, but not the database updates.
+
+        FIX: Should nested calls unwind database updates?
+        '''
+        self.trans_attr_names.append(set())
+        if len(self.trans_attr_names) == 1:
+            self.default_cursor.execute('BEGIN')
+            self.set_trans_attr('now', datetime.utcnow())
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        for attr in self.trans_attr_names:
+        assert self.trans_attr_names, f"extranious exit from context manager"
+        for attr in self.trans_attr_names[-1]:
             #print("__exit__ deleting", attr)
             delattr(self, attr)
-        self.trans_attr_names = set()
-        if exc_type is None and exc_val is None:
-            self.commit()
-        else:
-            self.rollback()
+        del self.trans_attr_names[-1]
+        if not self.trans_attr_names:
+            if exc_type is None and exc_val is None:
+                self.commit()
+            else:
+                self.rollback()
         return False  # do not suppress exception
 
     def cursor(self, trace=False):

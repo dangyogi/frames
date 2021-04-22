@@ -287,8 +287,8 @@ if __name__ == '__main__':
 
     if args.command == 'create':
         db_conn = sql_gen_module.get_conn()
-        user_id = db_conn.get_user_id('bruce')
-        version_obj = db_conn.at_versions(user_id, *args.versions)
+        user = 'bruce'
+        version_obj = db_conn.at_versions(user, *args.versions)
         create(sql_gen_module, version_obj.get_frame(args.frame_label),
                sys.stdout)
     else:

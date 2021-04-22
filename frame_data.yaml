@@ -1,335 +1,344 @@
 ---
 
-- users:
-  - name: bruce
-    login: bruce
-    password: blahblahblah
+- user: bruce
+  versions:
+    - add:
+        - name: start
+
+- user: bruce
+  selected_version: start
+  frames:
+    - add:
+        # Column base frames:
+        - frame_name: base_column
+          class_name: column
+          primary_key: False
+          nullable: False
+          mutable: True
+          check_foreign_key: False
+
+        - frame_name: base_id_column
+          name: "{table.name}_id"
+          ako: $base_column
+          type: integer
+          primary_key: True
+          nullable: False
+          mutable: False
+
+        - frame_name: base_string_no_html_chars_column
+          ako: $base_column
+          type: string
+          max_len: 40
+          nullable: False
+          html_chars_allowed: False
+          display_html: False
+
+        - frame_name: base_string_with_html_chars_column
+          ako: $base_string_no_html_chars_column
+          html_chars_allowed: True
+
+        - frame_name: base_html_string_column
+          ako: $base_string_with_html_chars_column
+          display_html: True
+
+        - frame_name: base_text_no_html_chars_column
+          ako: $base_string_no_html_chars_column
+          max_len: 4096
+
+        - frame_name: base_text_with_html_chars_column
+          ako: $base_string_with_html_chars_column
+          max_len: 4096
+
+        - frame_name: base_html_text_column
+          ako: $base_html_string_column
+          max_len: 4096
+
+        - frame_name: base_password_column
+          name: password
+          ako: $base_string_with_html_chars_column
+          max_len: 1024
+          hide: True
+
+        - frame_name: base_email_column
+          name: email
+          ako: $base_string_with_html_chars_column
+          max_len: 1024
+
+        - frame_name: base_name_column
+          name: name
+          ako: $base_string_no_html_chars_column
+          collate: NOCASE
+
+        - frame_name: base_description_column
+          name: description
+          ako: $base_text_with_html_chars_column
+
+        - frame_name: base_date_column
+          name: date
+          ako: $base_column
+          type: date
+
+        - frame_name: base_time_column
+          name: time
+          ako: $base_column
+          type: time
+
+        - frame_name: base_timestamp_column
+          name: timestamp
+          ako: $base_column
+          type: timestamp
+
+        - frame_name: base_who_column
+          name: "{frame.name_prefix}_user"
+          ako: $base_string_no_html_chars_column
+          max_len: 100
+
+        - frame_name: base_when_column
+          name: "{frame.name_prefix}_timestamp"
+          ako: $base_timestamp_column
+
+        - frame_name: base_whodunit_columns
+          splice: true
+          column:
+            - $base_who_column
+            - $base_when_column
+
+        - frame_name: base_created_columns
+          ako: $base_whodunit_columns
+          name_prefix: creation
+          nullable: False
+          mutable: False
+
+        - frame_name: base_updated_columns
+          ako: $base_whodunit_columns
+          name_prefix: updated
+          nullable: True
+
+        - frame_name: base_audit_columns
+          splice: true
+          column:
+            - $base_created_columns
+            - $base_updated_columns
+
+
+        # Constraint base frames:
+        - frame_name: base_constraint
+          class_name: constraint
+        
+        - frame_name: base_primary_key
+          ako: $base_constraint
+          type: primary_key
+
+
+        # Table base frames:
+        - frame_name: base_table
+          class_name: table
+          name: "{frame.frame_name}"
+
+        - frame_name: base_id_table
+          ako: $base_table
+          column:
+            - slot_list_order: 1
+              value: $base_id_column
+
+        - frame_name: base_audit_table
+          ako: $base_table
+          column:
+            - slot_list_order: 9000
+              value: $base_audit_columns
+
+        - frame_name: base_id_audit_table
+          ako: $base_id_table
+          column:
+            - slot_list_order: 9000
+              value: $base_audit_columns
+
+        - frame_name: base_name_desc_table
+          ako: $base_id_audit_table
+          column:
+            - slot_list_order: 50
+              value: $base_name_column
+            - $base_description_column
+
+
+        # Index base frames:
+        - frame_name: base_index
+          class_name: index
+          unique: false
+
+        - frame_name: base_unique_index
+          ako: $base_index
+          unique: true
+
+
+        # Schema base frames:
+        - frame_name: base_schema
+          class_name: schema
+          name: default
+
+
+        # Set base frames:
+        - frame_name: base_1_to_many
+          class_name: set
+          type: 1m
+          name: "{frame.parent.name}_{frame.type}_{frame.child.name}"
+          many_parents: False
+          many_children: True
+
+        - frame_name: base_many_to_many
+          ako: $base_1_to_many
+          type: mm
+          many_parents: True
+
+
+        # Frame instances (finally)!
+        - frame_name: Version
+          isa: $base_name_desc_table
+          column:
+            - name: status
+              isa: $base_string_no_html_chars_column
+              max_len: 40
+              default: proposed
+          index:
+            - isa: $base_unique_index
+              columns: name
+
+        - frame_name: Version_requires
+          isa: $base_audit_table
+          column:
+            - name: version_id
+              isa: $base_column
+              mutable: False
+              type: integer
+              links_to: Version(version_id)
+              check_foreign_key: True
+            - name: required_version_id
+              isa: $base_column
+              type: integer
+              links_to: Version(version_id)
+              check_foreign_key: True
+          index:
+            - isa: $base_unique_index
+              columns: [version_id, required_version_id]
+
+        - frame_name: Slot
+          isa: $base_name_desc_table
+          column:
+            - name: frame_id
+              isa: $base_column
+              mutable: False
+              type: integer
+            - name: slot_list_order
+              isa: $base_column
+              type: float
+              nullable: true
+            - name: value
+              isa: $base_string_with_html_chars_column
+              max_len: 4096
+              collate: nocase
+              nullable: true
+          index:
+            - isa: $base_index
+              columns: [frame_id, name]
+
+        - frame_name: Slot_versions
+          isa: $base_audit_table
+          column:
+            - name: slot_id
+              isa: $base_column
+              mutable: False
+              type: integer
+              links_to: Slot(slot_id)
+              check_foreign_key: True
+            - name: version_id
+              isa: $base_column
+              mutable: False
+              type: integer
+              links_to: Version(version_id)
+              check_foreign_key: True
+          constraint:
+            - isa: $base_primary_key
+              column: [slot_id, version_id]
+
+        - frame_name: frames_database
+          class_name: database
+          name: frames
+          schema:
+            - isa: $base_schema
+              table:
+                - $Version
+                - $Version_requires
+                - $Slot
+                - $Slot_versions
+          sets:
+            - frame_name: set1
+              isa: $base_many_to_many
+              link: $Slot_Versions
+              parent: $Slot
+              child: $Version
+            - isa: $base_many_to_many
+              link: $Version_requires
+              parent: $Version
+              child: $Version
+
 
 - user: bruce
   versions:
-    - name: start
-    - name: left
-      requires: [start]
-    - name: right
-      requires: [start]
-    - name: other
-      requires: [left, right]
-    - name: float_a
-    - name: float_b
+    - add:
+        - name: left
+          requires: [start]
+        - name: right
+          requires: [start]
+        - name: left_right
+          requires: [left, right]
+        - name: other
+          requires: [left, right]
+        - name: float_a
+        - name: float_b
 
-- required_versions: [start]
-  user: bruce
+
+- user: bruce
+  selected_version: left
   frames:
-    # Column base frames:
-    - frame_name: base_column
-      class_name: column
-      primary_key: False
-      nullable: False
-      mutable: True
-      check_foreign_key: False
-
-    - frame_name: base_id_column
-      name: "{table.name}_id"
-      ako: $base_column
-      type: integer
-      primary_key: True
-      nullable: False
-      mutable: False
-
-    - frame_name: base_string_no_html_chars_column
-      ako: $base_column
-      type: string
-      max_len: 40
-      nullable: False
-      html_chars_allowed: False
-      display_html: False
-
-    - frame_name: base_string_with_html_chars_column
-      ako: $base_string_no_html_chars_column
-      html_chars_allowed: True
-
-    - frame_name: base_html_string_column
-      ako: $base_string_with_html_chars_column
-      display_html: True
-
-    - frame_name: base_text_no_html_chars_column
-      ako: $base_string_no_html_chars_column
-      max_len: 4096
-
-    - frame_name: base_text_with_html_chars_column
-      ako: $base_string_with_html_chars_column
-      max_len: 4096
-
-    - frame_name: base_html_text_column
-      ako: $base_html_string_column
-      max_len: 4096
-
-    - frame_name: base_password_column
-      name: password
-      ako: $base_string_with_html_chars_column
-      max_len: 1024
-      hide: True
-
-    - frame_name: base_email_column
-      name: email
-      ako: $base_string_with_html_chars_column
-      max_len: 1024
-
-    - frame_name: base_name_column
-      name: name
-      ako: $base_string_no_html_chars_column
-      collate: NOCASE
-
-    - frame_name: base_description_column
-      name: description
-      ako: $base_text_with_html_chars_column
-
-    - frame_name: base_date_column
-      name: date
-      ako: $base_column
-      type: date
-
-    - frame_name: base_time_column
-      name: time
-      ako: $base_column
-      type: time
-
-    - frame_name: base_timestamp_column
-      name: timestamp
-      ako: $base_column
-      type: timestamp
-
-    - frame_name: base_who_column
-      name: "{frame.name_prefix}_user_id"
-      ako: $base_column
-      type: integer
-      links_to: User(user_id)
-      check_foreign_key: True
-
-    - frame_name: base_when_column
-      name: "{frame.name_prefix}_timestamp"
-      ako: $base_timestamp_column
-
-    - frame_name: base_whodunit_columns
-      splice: true
-      column:
-        - $base_who_column
-        - $base_when_column
-
-    - frame_name: base_created_columns
-      ako: $base_whodunit_columns
-      name_prefix: creation
-      nullable: False
-      mutable: False
-
-    - frame_name: base_updated_columns
-      ako: $base_whodunit_columns
-      name_prefix: updated
-      nullable: True
-
-    - frame_name: base_audit_columns
-      splice: true
-      column:
-        - $base_created_columns
-        - $base_updated_columns
+    - change:
+        - User:
+            - add:
+                version_test:
+                    - value: left
+                      description: Left description
 
 
-    # Constraint base frames:
-    - frame_name: base_constraint
-      class_name: constraint
-    
-    - frame_name: base_primary_key
-      ako: $base_constraint
-      type: primary_key
+- user: bruce
+  selected_version: right
+  frames:
+    - change:
+        - User:
+            - add:
+                version_test:
+                    - value: right
+                      description: Right description
 
+- user: bruce
+  selected_version: left_right
+  frames:
+    - change:
+        - User:
+            - add:
+                version_test: left_right
 
-    # Table base frames:
-    - frame_name: base_table
-      class_name: table
-      name: "{frame.frame_name}"
+- user: bruce
+  selected_version: float_a
+  frames:
+    - change:
+        - User:
+            - add:
+                version_test: float_a
 
-    - frame_name: base_id_table
-      ako: $base_table
-      column:
-        - slot_list_order: 1
-          value: $base_id_column
+- user: bruce
+  selected_version: float_b
+  frames:
+    - change:
+        - User:
+            - add:
+                version_test: float_b
 
-    - frame_name: base_audit_table
-      ako: $base_table
-      column:
-        - slot_list_order: 9000
-          value: $base_audit_columns
-
-    - frame_name: base_id_audit_table
-      ako: $base_id_table
-      column:
-        - slot_list_order: 9000
-          value: $base_audit_columns
-
-    - frame_name: base_name_desc_table
-      ako: $base_id_audit_table
-      column:
-        - slot_list_order: 50
-          value: $base_name_column
-        - $base_description_column
-
-
-    # Index base frames:
-    - frame_name: base_index
-      class_name: index
-      unique: false
-
-    - frame_name: base_unique_index
-      ako: $base_index
-      unique: true
-
-
-    # Schema base frames:
-    - frame_name: base_schema
-      class_name: schema
-      name: default
-
-
-    # Set base frames:
-    - frame_name: base_1_to_many
-      class_name: set
-      type: 1m
-      name: "{frame.parent.name}_{frame.type}_{frame.child.name}"
-      many_parents: False
-      many_children: True
-
-    - frame_name: base_many_to_many
-      ako: $base_1_to_many
-      type: mm
-      many_parents: True
-
-
-    # Frame instances (finally)!
-    - frame_name: User
-      isa: $base_id_table
-      column:
-        - name: login
-          isa: $base_name_column
-          mutable: False
-        - isa: $base_password_column
-        - isa: $base_name_column
-        - frame_name: user_email
-          isa: $base_email_column
-          version_test_left:
-            slot_name: version_test
-            value: left
-            required_versions: [left]
-            description: Just for testing accessing by different versions
-          version_test_right:
-            slot_name: version_test
-            value: right
-            required_versions: [right]
-            description: Just for testing accessing by different versions
-          version_test_left_right:
-            slot_name: version_test
-            value: left right
-            required_versions: [left, right]
-            description: Just for testing accessing by different versions
-          version_test_float_a:
-            slot_name: version_test
-            value: float_a
-            required_versions: [float_a]
-            description: Just for testing accessing by different versions
-          version_test_float_b:
-            slot_name: version_test
-            value: float_b
-            required_versions: [float_b]
-            description: Just for testing accessing by different versions
-      index:
-        - isa: $base_unique_index
-          columns: login
-
-    - frame_name: Version
-      isa: $base_name_desc_table
-      column:
-        - name: status
-          isa: $base_string_no_html_chars_column
-          max_len: 40
-          default: proposed
-      index:
-        - isa: $base_unique_index
-          columns: name
-
-    - frame_name: Version_requires
-      isa: $base_audit_table
-      column:
-        - name: version_id
-          isa: $base_column
-          mutable: False
-          type: integer
-          links_to: Version(version_id)
-          check_foreign_key: True
-        - name: required_version_id
-          isa: $base_column
-          type: integer
-          links_to: Version(version_id)
-          check_foreign_key: True
-      index:
-        - isa: $base_unique_index
-          columns: [version_id, required_version_id]
-
-    - frame_name: Slot
-      isa: $base_name_desc_table
-      column:
-        - name: frame_id
-          isa: $base_column
-          mutable: False
-          type: integer
-        - name: slot_list_order
-          isa: $base_column
-          type: float
-          nullable: true
-        - name: value
-          isa: $base_string_with_html_chars_column
-          max_len: 4096
-          collate: nocase
-          nullable: true
-      index:
-        - isa: $base_index
-          columns: [frame_id, name]
-
-    - frame_name: Slot_versions
-      isa: $base_audit_table
-      column:
-        - name: slot_id
-          isa: $base_column
-          mutable: False
-          type: integer
-          links_to: Slot(slot_id)
-          check_foreign_key: True
-        - name: version_id
-          isa: $base_column
-          mutable: False
-          type: integer
-          links_to: Version(version_id)
-          check_foreign_key: True
-      constraint:
-        - isa: $base_primary_key
-          column: [slot_id, version_id]
-
-    - frame_name: frames_database
-      class_name: database
-      name: frames
-      schema:
-        - isa: $base_schema
-          table:
-            - $User
-            - $Version
-            - $Version_requires
-            - $Slot
-            - $Slot_versions
-      sets:
-        - frame_name: set1
-          isa: $base_many_to_many
-          link: $Slot_Versions
-          parent: $Slot
-          child: $Version
-        - isa: $base_many_to_many
-          link: $Version_requires
-          parent: $Version
-          child: $Version
