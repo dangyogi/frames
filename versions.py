@@ -140,11 +140,40 @@ def load_delete_versions(conn, names):
     conn.delete('Version', name=names)
 
 
+def dump(conn, name):
+    v = conn.select_1("Version", name=name)
+    print("Version")
+    for f in "version_id,description,status,creation_user,creation_timestamp," \
+               "updated_user,updated_timestamp".split(','):
+        print(f"  {f}:", v[f])
+    print()
+    fields = "required_version_id,creation_user,creation_timestamp"
+    print("Version_requires", fields)
+    with conn.cursor() as cur:
+        cur.select("Version_requires", fields, version_id=v['version_id'])
+        for r in cur:
+            print(f"  {get_name(conn, r['required_version_id'])},",
+                  ', '.join(str(r[f]) for f in fields.split(',')[1:]))
+        print()
+        print("Version_subsets", 
+              sorted(get_name(conn, v) 
+                     for v in cur.select_1_column("Version_subsets",
+                                                  "subset_id",
+                                                  superset_id=v['version_id'])))
+        print()
+        print("Version_supersets", 
+              sorted(get_name(conn, v)
+                     for v in cur.select_1_column("Version_subsets",
+                                                  "superset_id",
+                                                  subset_id=v['version_id'])))
+
+
 class version_obj:
-    def __init__(self, db_conn, user, version_name):
+    def __init__(self, db_conn, user, version_name, for_update=False):
         self.db_conn = db_conn
         self.user = user
         self.version_name = version_name
+        self.for_update = for_update
 
     def __getattr__(self, attr_name):
         return getattr(self.db_conn, attr_name)
@@ -158,17 +187,35 @@ class version_obj:
                                               name=self.version_name)
         self.frame_cache = {}  # {id: frame}
         self.frame_names = {}  # {frame_name: id}
+        if self.for_update:
+            if self.status != 'proposed':
+                raise AssertionError(
+                        f"Version {self.version_name}: "
+                        f"can't be used for_update, status is {self.status!r}")
+            self.del_flag = False
+            if not hasattr(self.db_conn, 'update_version_id'):
+                self.db_conn.set_trans_attr('update_version_id',
+                                            self.version_id)
+                self.del_flag = True
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.for_update:
+            if self.del_flag:
+                self.db_conn.del_trans_attr('update_version_id')
+            del self.del_flag
         ans = self.db_conn.__exit__(exc_type, exc_val, exc_tb)
         del self.frame_cache
         del self.frame_names
         del self.version_id
         del self.status
 
+    def __iter__(self):
+        return iter(self.db_conn)
+
     def is_frozen(self):
-        return self.status != 'proposed'
+        return self.status != 'proposed' or not self.for_update \
+            or self.db_conn.update_version_id != self.version_id
 
     def get_frame_id(self, frame_label):
         r'''Get frame_id of `frame_label`.
@@ -197,7 +244,7 @@ class version_obj:
                 self.frame_names[frame_name] = \
                   self.select_1_value('Frame', 'frame_id', name=frame_name)
             except AssertionError:
-                raise NameError(f"Frame {frame_name!r} not found")
+                raise NameError(f"Frame {frame_name!r} not found") from None
         return self.frame_names[frame_name]
 
     def get_frame(self, frame_label):
@@ -206,3 +253,17 @@ class version_obj:
             self.frame_cache[frame_id] = self.load_frame(frame_id)
         return self.frame_cache[frame_id]
 
+
+
+if __name__ == "__main__":
+    import argparse
+    import frames_db
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--database", default="frames.db")
+    parser.add_argument("version_name")
+    args = parser.parse_args()
+
+    db = frames_db.sqlite3_db()
+    with db.connect(args.database) as conn:
+        dump(conn, args.version_name)

@@ -189,6 +189,7 @@ class cursor:
 
     Adds the following helper methods:
 
+        _ __enter__/__exit__ to close the cursor
         - select(table_name, columns='*', **where)
         - select_1(table_name, columns='*', **where)
         - select_1_column(table_name, column, **where)
@@ -222,6 +223,13 @@ class cursor:
 
     def __iter__(self):
         return iter(self.db_cur)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
     def __getattr__(self, attr_name):
         return getattr(self.db_cur, attr_name)

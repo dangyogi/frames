@@ -301,7 +301,7 @@
   selected_version: left
   frames:
     - change:
-        - User:
+        - Version:
             - add:
                 version_test:
                     - value: left
@@ -312,7 +312,7 @@
   selected_version: right
   frames:
     - change:
-        - User:
+        - Version:
             - add:
                 version_test:
                     - value: right
@@ -322,7 +322,7 @@
   selected_version: left_right
   frames:
     - change:
-        - User:
+        - Version:
             - add:
                 version_test: left_right
 
@@ -330,7 +330,7 @@
   selected_version: float_a
   frames:
     - change:
-        - User:
+        - Version:
             - add:
                 version_test: float_a
 
@@ -338,7 +338,7 @@
   selected_version: float_b
   frames:
     - change:
-        - User:
+        - Version:
             - add:
                 version_test: float_b
 

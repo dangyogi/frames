@@ -14,7 +14,7 @@ def sqlite3_db():
             self.reset_cursor()
             self.execute('PRAGMA foreign_keys = 1')
 
-        def at_version(self, user, version_name):
-            return version_obj(self, user, version_name)
+        def at_version(self, user, version_name, for_update=False):
+            return version_obj(self, user, version_name, for_update)
 
     return db.db(sqlite3, connection=sqlite3_connection)

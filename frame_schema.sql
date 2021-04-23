@@ -58,22 +58,6 @@ CREATE TABLE Frame (    -- only allowed update is changing name when NULL
 CREATE UNIQUE INDEX Frame_name_index ON Frame(name);
 
 
-CREATE TABLE Frame_version (
-    frame_id integer references Frame(frame_id) on delete cascade not null,
-    version_id integer references Version(version_id)
-                       on delete cascade not null,
-    isa integer references Frame(frame_id),  -- on delete restrict?
-    ako integer references Frame(frame_id),  -- on delete restrict?
-    description varchar(4096),
-    creation_user varchar(100) not null,
-    creation_timestamp timestamp not null,
-    updated_user varchar(100),
-    updated_timestamp timestamp
-);
-
-CREATE UNIQUE INDEX Frame_version_index ON Frame_version(frame_id, version_id);
-
-
 -- Each slot_id can hold only a single value.  Multi-valued "slots" (lists) are
 -- multiple slot_ids that share the same frame_id (here, in this table) and
 -- slot name (in the Slot_version table).  They are distinguished by their
@@ -90,18 +74,20 @@ CREATE INDEX Slot_index ON Slot(frame_id);
 
 -- Each slot_id is versioned.
 --
--- Conceptually, frames have named slots (identified by frame_id, name).
+-- Conceptually, frames have named slots (identified by frame_id, name,
+-- slot_list_order).  These are the keys used for inheritance.
 --
 -- Each conceptual slot may have a single value, or multiple values (i.e,
 -- a list).
 -- 
+-- Single valued slots are identified by a slot_list_order of NULL.
+--
 -- Multi-valued slots use multiple rows, with different slot_ids but the same
 -- slot name, one for each of the multiple values.  These are ordered by
 -- slot_list_order.
 --
--- Thus, each individual value is individually versioned.
---
--- Single valued slots are identified by a slot_list_order of NULL.
+-- Thus, each individual value has its own slot_id and is individually
+-- versioned.
 CREATE TABLE Slot_version (
     slot_id integer references Slot(slot_id) on delete cascade not null,
     version_id integer references Version(version_id) on delete cascade

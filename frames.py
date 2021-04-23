@@ -1,7 +1,7 @@
 # frames.py
 
 from itertools import groupby
-from operator import attrgetter
+from operator import itemgetter
 
 
 
@@ -33,118 +33,50 @@ def aslist(x):
     return [x]
 
 
-def frame_has_version(version_obj, frame_id, version_id=None):
-    r'''True iff `frame_id` as a direct version for `version_id`.
-    '''
-    if version_id is None:
-        version_id = version_obj.version_id
-    return version_obj.exists('Frame_version',
-                              frame_id=frame_id,
-                              version_id=version_id)
-
-
-def get_selected_frame(version_obj, frame_label, version_id=None):
-    r'''Returns the selected_frame row representing this `version_id`.
-    '''
-    if isinstance(frame_label, str) and not frame_label.isdigit():
-        frame_id = version_obj.get_frame_id(frame_label)
-    else:
-        frame_id = int(frame_label)
-    return selected_frame(version_obj, frame_id, version_id)
-
-
-def selected_frame(version_obj, frame_id, target_version_id=None):
-    r'''Returns one row of Frame_version.
-
-    Raises AttributeError if not exactly one match.
-    '''
-    if target_version_id is None:
-        target_version_id = version_obj.version_id
-    print("selected_frame: frame_id",  frame_id,
-          "target_version_id", target_version_id)
-    version_obj.execute(
-        'SELECT *',
-        '  FROM Frame_version fv',
-        ' WHERE frame_id = :frame_id',
-        '   AND (version_id = :target_version_id',
-        '        OR EXISTS (SELECT NULL FROM Version_subsets',
-        '                    WHERE superset_id = :target_version_id',
-        '                      AND subset_id = fv.version_id)',
-        '   AND NOT EXISTS (',
-        '             SELECT NULL',
-        '               FROM Frame_version super',
-        '                    INNER JOIN Version_subsets vs_down',
-        '                       ON vs_down.superset_id = super.version_id',
-        '                          AND vs_down.subset_id = fv.version_id',
-        '              WHERE super.frame_id = fv.frame_id',
-        '                AND (super.version_id = :target_version_id',
-        '                     OR EXISTS (',
-        '                        SELECT NULL',
-        '                          FROM Version_subsets vs_up',
-        '                         WHERE vs_up.superset_id = :target_version_id',
-        '                           AND vs_up.subset_id = super.version_id))))',
-        frame_id=frame_id,
-        target_version_id=target_version_id)
-
-    rows = version_obj.fetchall()
-    print("rows:")
-    for row in rows:
-        for key in sorted(row.keys()):
-            print("   ", key, row[key])
-        print()
-    if len(rows) > 1:
-        raise AssertionError(f"Ambiguous versions for frame {frame_id}, "
-                             f"target_version_id {target_version_id}, "
-                             f"has {sorted(r['version_id'] for r in rows)}")
-    if not rows:
-        raise AssertionError(f"No version of frame {frame_id} for "
-                             f"target_version_id {target_version_id}")
-    return rows[0]
-
-
-def slot_has_version(version_obj, frame_id, slot_label, version_id=None):
-    r'''Returns slot_id or None.
-    '''
-    if version_id is None:
-        version_id = version_obj.version_id
-    if isinstance(slot_label, str):
-        for slot_id in version_obj.select_1_column('Frame_slots', 'slot_id',
-                                            frame_id=frame_id, name=slot_label,
-                                            version_id=version_id,
-                                            slot_list_order=None):
-            return slot_id
-    else:
-        if version_obj.exists('Frame_slots',
-                              frame_id=frame_id, slot_id=slot_label,
-                              version_id=version_id,
-                              slot_list_order=None):
-            return slot_label
-    return None
-
-
-def get_selected_slots(version_obj, frame_id, slot, version_id=None):
+def get_selected_slots(version_obj, frame_id, slot, slot_list_order='all',
+                       version_id=None, exc_on_ambiguity=True):
     r'''Gets all selected slots with `slot` for `frame_id`.
 
-    Returns Frame_slots rows.
+    Returns Frame_slots rows, one per slot_id.
 
-    These are in slot_list_order.
+    These are in slot_name, slot_list_order.
 
-    Raises AssertionError if there are any ambiguous slot versions.
+    All slots for `frame_id` are returned if `slot` is None.
+
+    All slot_list_orders for each slot_id are returned if slot_list_order ==
+    'all'.
+
+    Raises AssertionError if there are any ambiguous slot versions for the
+    same slot_id.  Two slot versions are ambiguous if neither version is a
+    superset of the other and neither are "<DELETED>".
+
+    Returns (one arbitrary) "<DELETED>" version per slot_id (rather than
+    nothing).
     '''
+    selected_slots(version_obj, frame_id, slot, slot_list_order, version_id)
     ans = []
-    for slot_id, rows \
-     in groupby(selected_slots(version_obj, frame_id, slot_name, version_id),
-                key=attrgetter('slot_id')):
-        sorted_rows = sorted(rows, key=attrgetter('version_id'))
-        if len(sorted_rows) > 1:
-            raise AssertionError(
-                    f"Ambiguious versions for slot_id {slot_id}: "
-                    f"{r['version_id'] for r in sorted_rows}")
-        ans.append(sorted_rows[0])
-    return sorted(ans, key=attrgetter('slot_list_order'))
+    for slot_id, rows in groupby(version_obj, key=itemgetter('slot_id')):
+        list_rows = list(rows)
+        if len(list_rows) == 1:
+            ans.append(list_rows[0])
+        elif list_rows:
+            sorted_rows = sorted((r for r in list_rows
+                                    if r['value'] != '<DELETED>'),
+                                 key=itemgetter('version_id'))
+            if len(sorted_rows) > 1 and exc_on_ambiguity:
+                raise AssertionError(
+                        f"Ambiguious versions for "
+                        f"frame_id {frame_id}, slot_id {slot_id}: "
+                        f"{tuple(r['version_id'] for r in sorted_rows)}")
+            if sorted_rows:
+                ans.append(sorted_rows[0])
+            else:
+                ans.append(list_rows[0])
+    return sorted(ans, key=itemgetter('name', 'slot_list_order'))
 
 
-def selected_slots(version_obj, frame_id, slot=None, version_id=None):
+def selected_slots(version_obj, frame_id, slot=None, slot_list_order='all',
+                   version_id=None):
     r'''Read selected slots from Frame_slots.
 
     Executes the SQL.  Use the version_obj.default_cursor to read the results.
@@ -173,11 +105,26 @@ def selected_slots(version_obj, frame_id, slot=None, version_id=None):
             sql_lines.append(
         '   AND slot_id = :slot_id')
             params['slot_id'] = slot
+    if slot_list_order != 'all':
+        if slot_list_order is None:
+            sql_lines.append(
+        '   AND slot_list_order IS NULL')
+        else:
+            sql_lines.append(
+        '   AND slot_list_order = :slot_list_order')
+            params['slot_list_order'] = slot_list_order
+
+    # AND fs.version_id is subset of target_version_id
     sql_lines.extend([
         '   AND (version_id = :target_version_id',
         '        OR EXISTS (SELECT NULL FROM Version_subsets',
         '                    WHERE superset_id = :target_version_id',
         '                      AND subset_id = fs.version_id)',
+    ])
+
+    # AND There is no other Slot_version ("super") that is a superset of
+    #     fs.version_id and a subset of target_version_id
+    sql_lines.extend([
 	'   AND NOT EXISTS (',
 	'         SELECT NULL',
 	'           FROM Slot_version super',
@@ -185,14 +132,16 @@ def selected_slots(version_obj, frame_id, slot=None, version_id=None):
 	'                   ON vs.superset_id = super.version_id',
 	'                      AND vs.subset_id = fs.version_id',
 	'          WHERE super.slot_id = fs.slot_id',
+        '            AND super.version_id != fs.version_id',
 	'            AND (super.version_id = :target_version_id',
 	'                 OR EXISTS (',
 	'                    SELECT NULL',
 	'                      FROM Version_subsets',
 	'                     WHERE superset_id = :target_version_id',
 	'                       AND subset_id = super.version_id))))',
-	' ORDER BY slot_id',
     ])
+    sql_lines.append(
+	' ORDER BY slot_id')
     version_obj.execute(*sql_lines,
                   frame_id=frame_id,
                   target_version_id=version_id,
@@ -211,13 +160,13 @@ def get_inherited_slots(version_obj, frame_id, slot_name, version_id=None,
     Does not do splicing!
     '''
     slots = get_selected_slots(version_obj, frame_id, slot_name, version_id)
-    if len(slots) == 1 and slots[0][1] is None:
+    if len(slots) == 1 and slots[0]['slot_list_order'] is None:
         # 1 answer with no slot_list_order, this overrides ALL inherited slots!
         return slots
 
     def inherit_slots(link, do_isa):
         inh_frame_id = get_selected_frame(version_obj, frame_id, version_id) \
-                             [link]
+                         [link]
         if inh_frame_id is None:
             return slots
 
@@ -263,7 +212,8 @@ def load_yaml(conn, frames):
     `frames` is the top-level dict for all frame updates.
     '''
     print("load_yaml frames for", frames['user'], frames['selected_version'])
-    version_obj = conn.at_version(frames['user'], frames['selected_version'])
+    version_obj = conn.at_version(frames['user'], frames['selected_version'],
+                                  for_update=True)
     with version_obj:
         for section in frames['frames']:
             if 'add' in section:
@@ -287,15 +237,6 @@ def load_add_frame(version_obj, frame):
     fields = frame.copy()
     frame_name = fields.pop('frame_name', None)
     print("adding frame", frame_name)
-    isa = fields.pop('isa', None)
-    if isa is not None:
-        assert isinstance(isa, str) and isa[0] == '$'
-        isa = version_obj.get_frame_id(isa)
-    ako = fields.pop('ako', None)
-    if ako is not None:
-        assert isinstance(ako, str) and ako[0] == '$'
-        ako = version_obj.get_frame_id(ako)
-    description = fields.pop('frame_description', None)
     found = False
     if frame_name is not None:
         try:
@@ -312,14 +253,6 @@ def load_add_frame(version_obj, frame):
                            creation_timestamp=version_obj.now)
         frame_id = version_obj.lastrowid
         print("created new frame_id", frame_id, "for", frame_name)
-    version_obj.insert("Frame_version",
-                       frame_id=frame_id,
-                       version_id=version_obj.version_id,
-                       isa=isa,
-                       ako=ako,
-                       description=description,
-                       creation_user=version_obj.user,
-                       creation_timestamp=version_obj.now)
 
     for name, value in fields.items():
         load_add_slot(version_obj, frame_id, name, value)
@@ -331,7 +264,7 @@ def load_add_slot(version_obj, frame_id, name, value, slot_list_order=None,
                   splice_ok=False):
     r'''Returns slot_list_order used.
     '''
-    if name in ('frame_name', 'isa', 'ako', 'frame_description'):
+    if name in ('frame_name',):
         raise ValueError(f"Illegal slot_name: {name}")
 
     if '[' in name:
@@ -357,11 +290,26 @@ def load_add_slot(version_obj, frame_id, name, value, slot_list_order=None,
             db_value = load_add_frame(version_obj, value)
         else:
             db_value = str(value)
-        version_obj.insert("Slot", frame_id=frame_id,
-                           creation_user=version_obj.user,
-                           creation_timestamp=version_obj.now)
+
+        # slot_id already assigned?
+        current_rows = get_selected_slots(version_obj, frame_id, name,
+                                          slot_list_order)
+        if current_rows:  # Can only be 0 or 1 row
+            # Yes!
+            old_slot = current_rows[0]
+            if old_slot['value'].upper() != '<DELETED>':
+                raise AssertionError(
+                        f"frame_id {frame_id}.{name}[{slot_list_order}]: "
+                        "Can not add slot that is already there")
+            slot_id = old_slot['slot_id']
+        else:
+            # No...
+            version_obj.insert("Slot", frame_id=frame_id,
+                               creation_user=version_obj.user,
+                               creation_timestamp=version_obj.now)
+            slot_id = version_obj.lastrowid
         version_obj.insert("Slot_version",
-                           slot_id=version_obj.lastrowid,
+                           slot_id=slot_id,
                            version_id=version_obj.version_id,
                            name=name,
                            slot_list_order=slot_list_order,
@@ -376,8 +324,8 @@ def load_change_frames(version_obj, changes):
     if version_obj.is_frozen():
         raise AssertionError(
                 f"Can not make changes to frames, "
-                f"version {versions.get_name(version_obj.version_id)} "
-                f"has status {versions.get_status(version_obj.version_id)}")
+                f"version {version_obj.version_name} "
+                f"has status {version_obj.status}")
 
     for change in changes:
         if len(change) != 1:
@@ -389,64 +337,28 @@ def load_change_frames(version_obj, changes):
             for command in commands:
                 if len(command) != 1:
                     raise AssertionError(
-                            f"Only one command allowed {command.keys()}")
+                            f"Only one command allowed in {frame_name}, "
+                            f"got {command.keys()}")
                 for command_name, slots in command.items():
                     if command_name == 'add':
                         for slot_name, value in slots.items():
                             load_add_slot(version_obj, frame_id,
                                           slot_name, value, splice_ok=True)
                     elif command_name == 'change':
-                        slots2 = slots.copy()
-                        isa = slots2.pop('isa', None)
-                        ako = slots2.pop('ako', None)
-                        description = slots2.pop('frame_description', None)
-                        fields = {}
-                        if isa is not None:
-                            assert isinstance(isa, str) and isa[0] == '$'
-                            fields['isa'] = version_obj.get_frame_id(isa)
-                        if ako is not None:
-                            assert isinstance(ako, str) and ako[0] == '$'
-                            fields['ako'] = version_obj.get_frame_id(ako)
-                        if description is not None:
-                            fields['description'] = description
-                        if fields:
-                            if version_obj.exists('Frame_version',
-                                 frame_id=frame_id,
-                                 version_id=version_obj.version_id):
-                                version_obj.update('Frame_version',
-                                  dict(frame_id=frame_id,
-                                       version_id=version_id),
-                                  updated_user=version_obj.user,
-                                  updated_timestamp=version_obj.now,
-                                  **fields)
-                            else:
-                                # Bring unchanged values forward from prior
-                                # version:
-                                base_frame = \
-                                  get_selected_frame(version_obj, frame_id)
-                                for name in ('isa', 'ako', 'description'):
-                                    if name not in fields:
-                                        fields[name] = base_frame[name]
-
-                                version_obj.insert('Frame_version',
-                                  frame_id=frame_id,
-                                  version_id=version_obj.version_id,
-                                  creation_user=version_obj.user,
-                                  creation_timestamp=version_obj.now,
-                                  **fields)
-                        for slot_name, value in slots2.items():
+                        for slot_name, value in slots.items():
                             load_change_slot(version_obj, frame_id,
                                              slot_name, value)
                     elif command_name == 'delete':
                         for slot_name in slots:
                             load_delete_slot(version_obj, frame_id, slot_name)
                     else:
-                        raise ValueError(f"Command must be add/change/delete, "
+                        raise ValueError(f"Command in {frame_name} "
+                                         f"must be add/change/delete, "
                                          f"got {command_name}")
 
 
-def load_change_slot(version_obj, frame_id, name, value, do_move=True):
-    if name in ('frame_name', 'isa', 'ako', 'frame_description'):
+def load_change_slot(version_obj, frame_id, name, value, forced=False):
+    if name in ('frame_name',):
         raise ValueError(f"Illegal slot_name: {name}")
 
     if '[' in name:
@@ -455,39 +367,109 @@ def load_change_slot(version_obj, frame_id, name, value, do_move=True):
         raise NotImplementedError(
                 "changing slot to list value not yet implemented")
     else:
-        # Is there already a slot_id for this version?
-        slot_id = slot_has_version(version_obj, frame_id, name)
-        if slot_id is None:
-            # No, must insert new slot_id
-
-            # Inherit description from current slot_id...
-            slots = get_inherited_slots(version_obj, frame_id, name)
-            if len(slots) == 1 and slots[0]['slot_list_order'] is None:
-                desc = slots[0]['description']
-            else:
-                desc = None
-
-            version_obj.db_conn.insert('Slot_version',
-              version_id=version_obj.version_id,
-              name=name,
-              description=desc,
-              value=str(value),
-              creation_user=version_obj.user,
-              creation_timestamp=version_obj.now)
+        description = None
+        slot_list_order = None
+        while isinstance(value, dict) and 'value' in value:
+            if 'slot_list_order' in value:
+                slot_list_order = value['slot_list_order']
+            if 'description' in value:
+                description = value['description']
+            value = value['value']
+        if isinstance(value, dict):
+            db_value = load_add_frame(version_obj, value)
         else:
-            # Yes, update existing slot_id
-            version_obj.update('Slot_version',
-              dict(slot_id=slot_id, version_id=version_obj.version_id),
-              value=str(value),
-              updated_user=version_obj.user,
-              updated_timestamp=version_obj.now)
+            db_value = str(value)
+
+        # Is there already a slot_id for this version?
+        old_slots = get_selected_slots(version_obj, frame_id, name,
+                                       slot_list_order, exc_on_ambiguity=False)
+        if not old_slots:
+            if not forced:
+                raise AssertionError(
+                        f"frame_id {frame_id}.{name}: "
+                        "Can not change slot, doesn't already exist")
+            # Create new slot
+            version_obj.insert("Slot",
+                               frame_id=frame_id,
+                               creation_user=version_obj.user,
+                               creation_timestamp=version_obj.now)
+            slot_id = version_obj.lastrowid
+        else:
+            old_slot = old_slots[0]
+            slot_id = old_slot['slot_id']
+            if old_slot['version_id'] == version_obj.version_id:
+                # Yes, update existing slot_id
+                version_obj.update('Slot_version',
+                  dict(slot_id=slot_id, version_id=version_obj.version_id),
+                  slot_list_order=slot_list_order,
+                  description=description,
+                  value=str(value),
+                  updated_user=version_obj.user,
+                  updated_timestamp=version_obj.now)
+                return
+        # No, must insert new Slot_version
+        version_obj.db_conn.insert('Slot_version',
+          slot_id=slot_id,
+          version_id=version_obj.version_id,
+          name=name,
+          slot_list_order=slot_list_order,
+          description=description,
+          value=str(value),
+          creation_user=version_obj.user,
+          creation_timestamp=version_obj.now)
 
 
 def load_delete_slot(version_obj, frame_id, slot_name):
-    load_change_slot(version_obj, frame_id, slot_name, '<DELETED>',
-                     do_move=False)
+    load_change_slot(version_obj, frame_id, slot_name, '<DELETED>', forced=True)
 
 
 def load_delete_frames(version_obj, names):
     version_obj.delete('Frame', name=names)
+
+
+def dump(version_obj, frame_label):
+    frame_id = version_obj.get_frame_id(frame_label)
+    f = version_obj.select_1("Frame", frame_id=frame_id)
+    print("Frame")
+    for field in f.keys():
+        print(f"  {field}:", f[field])
+    with version_obj.cursor() as cur:
+        slot_fields = "slot_id,creation_user,creation_timestamp"
+        sv_fields = "name,slot_list_order,description,value," \
+                    "creation_user,creation_timestamp," \
+                    "updated_user,updated_timestamp"
+        cur.select("Slot", slot_fields, frame_id=frame_id)
+        for slot in cur:
+            print()
+            print("Slot")
+            for f in slot_fields.split(','):
+                print(f"  {f}: {slot[f]}")
+            try:
+                sv = version_obj.select_1("Slot_version", sv_fields,
+                                          slot_id=slot['slot_id'],
+                                          version_id=version_obj.version_id)
+            except AssertionError:
+                pass
+            else:
+                print("  Slot_version")
+                for f in sv_fields.split(','):
+                    print(f"    {f}: {sv[f]}")
+
+
+
+if __name__ == "__main__":
+    import argparse
+    import frames_db
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--database", default="frames.db")
+    parser.add_argument("--user", default="bruce")
+    parser.add_argument("frame")
+    parser.add_argument("version")
+    args = parser.parse_args()
+
+    db = frames_db.sqlite3_db()
+    with db.connect(args.database) as conn, \
+         conn.at_version(args.user, args.version) as version_obj:
+        dump(version_obj, args.frame)
 
