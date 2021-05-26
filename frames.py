@@ -3,34 +3,13 @@
 from itertools import groupby
 from operator import itemgetter
 
+from frame_obj import islist
 
 
-def asbool(x):
-    r'''Converts slot value (a python str) to a python bool.
-    '''
-    if x.lower() == 'true':
-        return True
-    if x.lower() == 'false':
-        return False
-    raise ValueError(f"{x!r} is not a legal boolean value")
-
-
-def islist(x):
-    r'''True iff `x` is some kind of list.
-    '''
-    # FIX: How to get slot_list in here?
-    #return isinstance(x, (slot_list, dynamic_slot_list, list, tuple))
-    return isinstance(x, (list, tuple))
-
-
-def aslist(x):
-    r'''Makes sure that `x` is some kind of list.
-
-    If not, creates a list with `x` as the sole element.
-    '''
-    if islist(x):
-        return x
-    return [x]
+def lookup_frame_id(conn, frame_name):
+    if frame_name is None:
+        raise ValueError(f"Frame_name must not be None")
+    return conn.select_1_value('Frame', 'frame_id', name=frame_name)
 
 
 def get_selected_slots(version_obj, frame_id, slot, slot_list_order='all',
@@ -39,7 +18,7 @@ def get_selected_slots(version_obj, frame_id, slot, slot_list_order='all',
 
     Returns Frame_slots rows, one per slot_id.
 
-    These are in slot_name, slot_list_order.
+    These are ordered by slot_name, slot_list_order.
 
     All slots for `frame_id` are returned if `slot` is None.
 
@@ -50,8 +29,8 @@ def get_selected_slots(version_obj, frame_id, slot, slot_list_order='all',
     same slot_id.  Two slot versions are ambiguous if neither version is a
     superset of the other and neither are "<DELETED>".
 
-    Returns (one arbitrary) "<DELETED>" version per slot_id (rather than
-    nothing).
+    Returns one "<DELETED>" version per slot_id (rather than nothing).  This
+    is the version with the greatest version_id.
     '''
     selected_slots(version_obj, frame_id, slot, slot_list_order, version_id)
     ans = []
@@ -71,13 +50,16 @@ def get_selected_slots(version_obj, frame_id, slot, slot_list_order='all',
             if sorted_rows:
                 ans.append(sorted_rows[0])
             else:
-                ans.append(list_rows[0])
+                ans.append(sorted(list_rows,
+                                  key=itemgetter('version_id'),
+                                  reverse=True)
+                             [0])
     return sorted(ans, key=itemgetter('name', 'slot_list_order'))
 
 
 def selected_slots(version_obj, frame_id, slot=None, slot_list_order='all',
                    version_id=None):
-    r'''Read selected slots from Frame_slots.
+    r'''Read selected rows from Frame_slots.
 
     Executes the SQL.  Use the version_obj.default_cursor to read the results.
 
@@ -87,6 +69,8 @@ def selected_slots(version_obj, frame_id, slot=None, slot_list_order='all',
     an int for the desired slot_id.
      
     Slots are ordered by slot_id.
+
+    <DELETED> slots are included.
     '''
     if version_id is None:
         version_id = version_obj.version_id
@@ -151,7 +135,7 @@ def selected_slots(version_obj, frame_id, slot=None, slot_list_order='all',
 def get_inherited_slots(version_obj, frame_id, slot_name, version_id=None,
                         do_isa=True):
     r'''
-    Returns [(slot_id, slot_list_order, value, description, version_id)].
+    Returns a list of Frame_slot rows.
 
     Returned list is in slot_list_order.
 
@@ -172,7 +156,7 @@ def get_inherited_slots(version_obj, frame_id, slot_name, version_id=None,
 
         inh_slots = get_inherited_slots(version_obj, inh_frame_id,
                                         slot_name, version_id, do_isa)
-        if len(inh_slots) == 1 and inh_slots[0][1] is None:
+        if len(inh_slots) == 1 and inh_slots[0]['slot_list_order'] is None:
             # 1 answer with no slot_list_order, this overrides ALL inherited
             # slots!  Also overridden by any lower slots.
             if slots:
@@ -237,22 +221,18 @@ def load_add_frame(version_obj, frame):
     fields = frame.copy()
     frame_name = fields.pop('frame_name', None)
     print("adding frame", frame_name)
-    found = False
     if frame_name is not None:
         try:
             frame_id = version_obj.get_frame_id(frame_name)
-            found = True
+            raise AssertionError(f"frame_name {frame_name} already used")
         except NameError:
             pass
-    if found:
-        print("reusing frame_id", frame_id, "for", frame_name)
-    else:
-        version_obj.insert("Frame",
-                           name=frame_name,
-                           creation_user=version_obj.user,
-                           creation_timestamp=version_obj.now)
-        frame_id = version_obj.lastrowid
-        print("created new frame_id", frame_id, "for", frame_name)
+    version_obj.insert("Frame",
+                       name=frame_name,
+                       creation_user=version_obj.user,
+                       creation_timestamp=version_obj.now)
+    frame_id = version_obj.lastrowid
+    print("created new frame_id", frame_id, "for", frame_name)
 
     for name, value in fields.items():
         load_add_slot(version_obj, frame_id, name, value)
@@ -264,7 +244,7 @@ def load_add_slot(version_obj, frame_id, name, value, slot_list_order=None,
                   splice_ok=False):
     r'''Returns slot_list_order used.
     '''
-    if name in ('frame_name',):
+    if name.lower() in ('frame_name',):
         raise ValueError(f"Illegal slot_name: {name}")
 
     if '[' in name:
@@ -291,9 +271,10 @@ def load_add_slot(version_obj, frame_id, name, value, slot_list_order=None,
         else:
             db_value = str(value)
 
-        # slot_id already assigned?
+        # Does slot already have a value assigned for this version?
         current_rows = get_selected_slots(version_obj, frame_id, name,
                                           slot_list_order)
+        print("load_add_slot", frame_id, name, slot_list_order, current_rows)
         if current_rows:  # Can only be 0 or 1 row
             # Yes!
             old_slot = current_rows[0]
@@ -301,18 +282,35 @@ def load_add_slot(version_obj, frame_id, name, value, slot_list_order=None,
                 raise AssertionError(
                         f"frame_id {frame_id}.{name}[{slot_list_order}]: "
                         "Can not add slot that is already there")
-            slot_id = old_slot['slot_id']
-        else:
-            # No...
-            version_obj.insert("Slot", frame_id=frame_id,
+            if old_slot['version_id'] == version_obj.version_id:
+                # Update Slot_version
+                version_obj.update("Slot_version",
+                                   dict(slot_id=slot_id,
+                                        version_id=version_obj.version_id),
+                                   description=description,
+                                   value=db_value,
+                                   updated_user=version_obj.user,
+                                   updated_timestamp=version_obj.now)
+                return slot_list_order
+
+        # slot_id already assigned?
+        try:
+            slot_id = version_obj.select_1_value("Slot", "slot_id",
+                                    frame_id=frame_id,
+                                    name=name,
+                                    slot_list_order=slot_list_order)
+        except AssertionError:
+            # No, create new Slot row...
+            version_obj.insert("Slot",
+                               frame_id=frame_id,
+                               name=name,
+                               slot_list_order=slot_list_order,
                                creation_user=version_obj.user,
                                creation_timestamp=version_obj.now)
             slot_id = version_obj.lastrowid
         version_obj.insert("Slot_version",
                            slot_id=slot_id,
                            version_id=version_obj.version_id,
-                           name=name,
-                           slot_list_order=slot_list_order,
                            description=description,
                            value=db_value,
                            creation_user=version_obj.user,
@@ -321,12 +319,6 @@ def load_add_slot(version_obj, frame_id, name, value, slot_list_order=None,
 
 
 def load_change_frames(version_obj, changes):
-    if version_obj.is_frozen():
-        raise AssertionError(
-                f"Can not make changes to frames, "
-                f"version {version_obj.version_name} "
-                f"has status {version_obj.status}")
-
     for change in changes:
         if len(change) != 1:
             raise AssertionError(
@@ -358,7 +350,9 @@ def load_change_frames(version_obj, changes):
 
 
 def load_change_slot(version_obj, frame_id, name, value, forced=False):
-    if name in ('frame_name',):
+    r'''Doesn't return anything.
+    '''
+    if name.lower() in ('frame_name',):
         raise ValueError(f"Illegal slot_name: {name}")
 
     if '[' in name:
@@ -383,40 +377,47 @@ def load_change_slot(version_obj, frame_id, name, value, forced=False):
         # Is there already a slot_id for this version?
         old_slots = get_selected_slots(version_obj, frame_id, name,
                                        slot_list_order, exc_on_ambiguity=False)
-        if not old_slots:
-            if not forced:
-                raise AssertionError(
-                        f"frame_id {frame_id}.{name}: "
-                        "Can not change slot, doesn't already exist")
-            # Create new slot
-            version_obj.insert("Slot",
-                               frame_id=frame_id,
-                               creation_user=version_obj.user,
-                               creation_timestamp=version_obj.now)
-            slot_id = version_obj.lastrowid
-        else:
+        if old_slots:
             old_slot = old_slots[0]
-            slot_id = old_slot['slot_id']
             if old_slot['version_id'] == version_obj.version_id:
                 # Yes, update existing slot_id
                 version_obj.update('Slot_version',
-                  dict(slot_id=slot_id, version_id=version_obj.version_id),
-                  slot_list_order=slot_list_order,
+                  dict(slot_id=old_slot['slot_id'],
+                       version_id=version_obj.version_id),
                   description=description,
                   value=str(value),
                   updated_user=version_obj.user,
                   updated_timestamp=version_obj.now)
                 return
-        # No, must insert new Slot_version
-        version_obj.db_conn.insert('Slot_version',
-          slot_id=slot_id,
-          version_id=version_obj.version_id,
-          name=name,
-          slot_list_order=slot_list_order,
-          description=description,
-          value=str(value),
-          creation_user=version_obj.user,
-          creation_timestamp=version_obj.now)
+        else:
+            if not forced:
+                raise AssertionError(
+                        f"frame_id {frame_id}.{name}: "
+                        "Can not change slot, doesn't already exist")
+
+        # slot_id already assigned?
+        try:
+            slot_id = version_obj.select_1_value("Slot", "slot_id",
+                                    frame_id=frame_id,
+                                    name=name,
+                                    slot_list_order=slot_list_order)
+        except AssertionError:
+            # No, create new Slot row...
+            version_obj.insert("Slot",
+                               frame_id=frame_id,
+                               name=name,
+                               slot_list_order=slot_list_order,
+                               creation_user=version_obj.user,
+                               creation_timestamp=version_obj.now)
+            slot_id = version_obj.lastrowid
+        version_obj.insert("Slot_version",
+                           slot_id=slot_id,
+                           version_id=version_obj.version_id,
+                           description=description,
+                           value=db_value,
+                           creation_user=version_obj.user,
+                           creation_timestamp=version_obj.now)
+    return
 
 
 def load_delete_slot(version_obj, frame_id, slot_name):
@@ -427,17 +428,24 @@ def load_delete_frames(version_obj, names):
     version_obj.delete('Frame', name=names)
 
 
-def dump(version_obj, frame_label):
-    frame_id = version_obj.get_frame_id(frame_label)
-    f = version_obj.select_1("Frame", frame_id=frame_id)
+def dump(conn, frame_id, full=False):
+    from versions import get_version_name
+
+    if full:
+        f = conn.select_1("Frame", frame_id=frame_id)
+    else:
+        f = conn.select_1("Frame", "frame_id,name", frame_id=frame_id)
     print("Frame")
     for field in f.keys():
         print(f"  {field}:", f[field])
-    with version_obj.cursor() as cur:
-        slot_fields = "slot_id,creation_user,creation_timestamp"
-        sv_fields = "name,slot_list_order,description,value," \
-                    "creation_user,creation_timestamp," \
-                    "updated_user,updated_timestamp"
+    with conn.cursor() as cur:
+        slot_fields = "slot_id,name,slot_list_order"
+        if full:
+            slot_fields += ",creation_user,creation_timestamp"
+        sv_fields = "version_id,value,description"
+        if full:
+            sv_fields += ",creation_user,creation_timestamp,"  \
+                          "updated_user,updated_timestamp"
         cur.select("Slot", slot_fields, frame_id=frame_id)
         for slot in cur:
             print()
@@ -445,15 +453,20 @@ def dump(version_obj, frame_label):
             for f in slot_fields.split(','):
                 print(f"  {f}: {slot[f]}")
             try:
-                sv = version_obj.select_1("Slot_version", sv_fields,
-                                          slot_id=slot['slot_id'],
-                                          version_id=version_obj.version_id)
+                conn.select("Slot_version", sv_fields, slot_id=slot['slot_id'])
             except AssertionError:
+                print("  No Slot_versions")
                 pass
             else:
                 print("  Slot_version")
-                for f in sv_fields.split(','):
-                    print(f"    {f}: {sv[f]}")
+                for sv in conn:
+                    for f in sv_fields.split(','):
+                        if f == 'version_id':
+                            print(f"    {f}:",
+                                  f"{sv[f]} ({get_version_name(conn, sv[f])})")
+                        else:
+                            print(f"    {f}: {sv[f]}")
+                    print()
 
 
 
@@ -461,15 +474,18 @@ if __name__ == "__main__":
     import argparse
     import frames_db
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Dump raw frame")
     parser.add_argument("--database", default="frames.db")
     parser.add_argument("--user", default="bruce")
+    parser.add_argument("--full", action="store_true", default=False)
     parser.add_argument("frame")
-    parser.add_argument("version")
     args = parser.parse_args()
 
     db = frames_db.sqlite3_db()
-    with db.connect(args.database) as conn, \
-         conn.at_version(args.user, args.version) as version_obj:
-        dump(version_obj, args.frame)
+    with db.connect(args.database) as conn:
+        if args.frame.isdigit():
+            frame_id = int(args.frame)
+        else:
+            frame_id = lookup_frame_id(conn, args.frame)
+        dump(conn, frame_id, args.full)
 

@@ -59,17 +59,19 @@ CREATE UNIQUE INDEX Frame_name_index ON Frame(name);
 
 
 -- Each slot_id can hold only a single value.  Multi-valued "slots" (lists) are
--- multiple slot_ids that share the same frame_id (here, in this table) and
--- slot name (in the Slot_version table).  They are distinguished by their
--- slot_list_order (also in the Slot_version table).
+-- multiple slot_ids that share the same frame_id and slot name.  They are
+-- distinguished (and ordered) by their slot_list_order.  The slot_list_order
+-- is NULL for single valued slots.
 CREATE TABLE Slot (     -- Can not be updated!
     slot_id integer primary key not null,
     frame_id integer references Frame(frame_id) on delete cascade not null,
+    name varchar(80) collate nocase not null,
+    slot_list_order real,              -- must be NULL for single-valued slots
     creation_user varchar(100) not null,
     creation_timestamp timestamp not null
 );
 
-CREATE INDEX Slot_index ON Slot(frame_id);
+CREATE INDEX Slot_index ON Slot(frame_id, name, slot_list_order);
 
 
 -- Each slot_id is versioned.
@@ -92,8 +94,6 @@ CREATE TABLE Slot_version (
     slot_id integer references Slot(slot_id) on delete cascade not null,
     version_id integer references Version(version_id) on delete cascade
                        not null,
-    name varchar(80) collate nocase not null,
-    slot_list_order real,              -- must be NULL for single-valued slots
     description varchar(4096),
     value varchar(4096) collate nocase not null,
       -- "`foo" quotes the string, so that the value is "foo" regardless of
@@ -109,12 +109,13 @@ CREATE TABLE Slot_version (
 );
 
 CREATE UNIQUE INDEX Slot_version_index ON Slot_version(slot_id, version_id);
-CREATE INDEX Slot_version_name_index ON Slot_version(name);
 
 
 -- Connects frame_id to Slot_versions
 CREATE VIEW Frame_slots AS
   SELECT Slot.frame_id,
+         Slot.name,
+         Slot.slot_list_order,
          sv.*,
          Slot.creation_user AS slot_creation_user,
          Slot.creation_timestamp AS slot_creation_timestamp

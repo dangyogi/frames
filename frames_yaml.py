@@ -36,7 +36,7 @@ if __name__ == "__main__":
 
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Load yaml/parse yaml")
     parser.add_argument('--reset_db', action='store_true', default=False)
     parser.add_argument('--schema', default='frame_schema.sql')
     parser.add_argument('--db_trace', action='store_true', default=False)

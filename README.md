@@ -32,11 +32,11 @@ Special slot names:
 
 Special values:
 
-    - "`xxx"  -- The ` quotes the rest of the string (turns off all the rest
-                 of these special values).
-    - "$xxx"  -- Frame reference.  xxx may either be a frame_id, or frame_name.
-    - "xx{name.slot}yy"  -- Python format string:
-      
+    - "`xxx"                  -- The ` quotes the rest of the string (turns off
+                                 all the rest of these special values).
+    - "$xxx"                  -- Frame reference.  xxx may either be a frame_id,
+                                 or frame_name.
+    - anything containing '{' -- Python format string:
       - context for the format is a map containing the following names
         (case insensitive):
         - "frame" for the direct frame containing this value.
@@ -44,6 +44,7 @@ Special values:
           slot (which could be inherited).
       - The format string is applied to the context each time the slot is
         accessed.
+    - "<DELETED>"             -- marks a deleted slot (case insensitive)
 
 
 Inheritance:
@@ -62,7 +63,8 @@ Inheritance:
       frame directly contains both kinds of links).
 
     - The special slot "frame_name" tags the frame containing it with a name
-      that may be used to reference that frame.
+      that may be used to reference that frame.  Once set, this slot may not
+      be changed.
 
     - "frame_name" is the only slot that is never inherited.
 
@@ -82,8 +84,8 @@ they share the same slot_list_order.
 
 Also each value in a slot may be separately deleted.
 
-Finally, each value in a slot_list that is a frame object with a "splice"
-slot of True, that frame is spliced into the slot list as follows:
+Finally, each value in a slot_list that is a frame with a "splice" slot of True
+is spliced into the slot list as follows:
 
     - A slot of the same name as the slot_list being spliced into is taken as
       the values to splice in.  For example, given:
@@ -113,7 +115,7 @@ slot of True, that frame is spliced into the slot list as follows:
         - isa
         - ako
         - splice
-        - slot_list's name
+        - slot_list's name ("some_list" in the example above)
 
 
 

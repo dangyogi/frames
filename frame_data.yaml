@@ -14,7 +14,7 @@
           class_name: column
           primary_key: False
           nullable: False
-          mutable: True
+          updatable: True
           check_foreign_key: False
 
         - frame_name: base_id_column
@@ -23,7 +23,7 @@
           type: integer
           primary_key: True
           nullable: False
-          mutable: False
+          updatable: False
 
         - frame_name: base_string_no_html_chars_column
           ako: $base_column
@@ -72,6 +72,7 @@
         - frame_name: base_description_column
           name: description
           ako: $base_text_with_html_chars_column
+          nullable: True
 
         - frame_name: base_date_column
           name: date
@@ -107,7 +108,7 @@
           ako: $base_whodunit_columns
           name_prefix: creation
           nullable: False
-          mutable: False
+          updatable: False
 
         - frame_name: base_updated_columns
           ako: $base_whodunit_columns
@@ -147,18 +148,39 @@
             - slot_list_order: 9000
               value: $base_audit_columns
 
-        - frame_name: base_id_audit_table
+        - frame_name: base_id_audit_created_table
           ako: $base_id_table
           column:
             - slot_list_order: 9000
-              value: $base_audit_columns
+              value: $base_created_columns
 
-        - frame_name: base_name_desc_table
+        - frame_name: base_id_audit_table
+          ako: $base_id_audit_created_table
+          column:
+            - slot_list_order: 9001
+              value: $base_updated_columns
+
+        - frame_name: base_name_table
           ako: $base_id_audit_table
           column:
             - slot_list_order: 50
               value: $base_name_column
             - $base_description_column
+          index:
+            - isa: $base_unique_index
+              columns: [name]
+
+        - frame_name: base_name_desc_table
+          ako: $base_name_table
+          column:
+            - slot_list_order: 51
+              value: $base_description_column
+
+
+        # View base frames:
+        - frame_name: base_view
+          class_name: view
+          name: "{frame.frame_name}"
 
 
         # Index base frames:
@@ -199,66 +221,104 @@
               isa: $base_string_no_html_chars_column
               max_len: 40
               default: proposed
-          index:
-            - isa: $base_unique_index
-              columns: name
 
         - frame_name: Version_requires
           isa: $base_audit_table
           column:
             - name: version_id
-              isa: $base_column
-              mutable: False
-              type: integer
+              isa: $base_id_column
+              primary_key: False
               links_to: Version(version_id)
               check_foreign_key: True
             - name: required_version_id
-              isa: $base_column
-              type: integer
+              isa: $base_id_column
+              primary_key: False
               links_to: Version(version_id)
               check_foreign_key: True
           index:
             - isa: $base_unique_index
               columns: [version_id, required_version_id]
 
-        - frame_name: Slot
-          isa: $base_name_desc_table
-          column:
-            - name: frame_id
-              isa: $base_column
-              mutable: False
-              type: integer
-            - name: slot_list_order
-              isa: $base_column
-              type: float
-              nullable: true
-            - name: value
-              isa: $base_string_with_html_chars_column
-              max_len: 4096
-              collate: nocase
-              nullable: true
-          index:
-            - isa: $base_index
-              columns: [frame_id, name]
-
-        - frame_name: Slot_versions
+        - frame_name: Version_subsets
           isa: $base_audit_table
           column:
-            - name: slot_id
+            - name: superset_id
               isa: $base_column
-              mutable: False
+              updatable: False
               type: integer
-              links_to: Slot(slot_id)
+              links_to: Version(version_id)
               check_foreign_key: True
-            - name: version_id
+            - name: subset_id
               isa: $base_column
-              mutable: False
+              updatable: False
               type: integer
               links_to: Version(version_id)
               check_foreign_key: True
           constraint:
             - isa: $base_primary_key
+              column: [superset_id, subset_id]
+          index:
+            - isa: $base__index
+              columns: [superset_id]
+            - isa: $base__index
+              columns: [subset_id]
+
+        - frame_name: Frame
+          isa: $base_name_table
+          column:
+            - slot_list_order: 50
+              value:
+                isa: $base_name_column
+                nullable: true
+
+        - frame_name: Slot
+          isa: $base_id_audit_created_table
+          column:
+            - name: frame_id
+              isa: $base_id_column
+              primary_key: False
+              links_to: Frame(frame_id)
+              check_foreign_key: True
+            - $base_name_column
+            - name: slot_list_order
+              type: real
+              nullable: True
+          index:
+            - isa: $base_index
+              columns: [frame_id, name, slot_list_order]
+
+        - frame_name: Slot_version
+          isa: $base_audit_table
+          column:
+            - name: slot_id
+              isa: $base_id_column
+              primary_key: False
+              links_to: Slot(slot_id)
+              check_foreign_key: True
+            - name: version_id
+              isa: $base_id_column
+              primary_key: False
+              links_to: Version(version_id)
+              check_foreign_key: True
+            - $base_description_column
+            - name: value
+              isa: $base_text_with_html_chars_column
+          index:
+            - isa: $base_unique_index
               column: [slot_id, version_id]
+
+        - frame_name: Frame_slots
+          description: Connects frame_id to Slot_version
+          isa: $base_view
+          query:
+            SELECT Slot.frame_id,
+                   Slot.name,
+                   Slot.slot_list_order,
+                   sv.*,
+                   Slot.creation_user AS slot_creation_user,
+                   Slot.creation_timestamp AS slot_creation_timestamp
+              FROM Slot
+                   INNER JOIN Slot_version sv USING (slot_id);
 
         - frame_name: frames_database
           class_name: database
@@ -268,17 +328,28 @@
               table:
                 - $Version
                 - $Version_requires
+                - $Version_subsets
+                - $Frame
                 - $Slot
-                - $Slot_versions
+                - $Slot_version
+              view:
+                - $Frame_slots
           sets:
+            - isa: $base_many_to_many
+              link: $Version_requires
+              parent: $Version
+              child: $Version
+            - isa: $base_many_to_many
+              link: $Version_subsets
+              parent: $Version
+              child: $Version
+            - isa: $base_1_to_many
+              parent: $Frame
+              child: $Slot
             - frame_name: set1
               isa: $base_many_to_many
               link: $Slot_Versions
               parent: $Slot
-              child: $Version
-            - isa: $base_many_to_many
-              link: $Version_requires
-              parent: $Version
               child: $Version
 
 
@@ -304,8 +375,8 @@
         - Version:
             - add:
                 version_test:
-                    - value: left
-                      description: Left description
+                  value: left
+                  description: Left description
 
 
 - user: bruce
@@ -315,15 +386,15 @@
         - Version:
             - add:
                 version_test:
-                    - value: right
-                      description: Right description
+                  value: right
+                  description: Right description
 
 - user: bruce
   selected_version: left_right
   frames:
     - change:
         - Version:
-            - add:
+            - change:
                 version_test: left_right
 
 - user: bruce

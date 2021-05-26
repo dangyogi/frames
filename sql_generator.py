@@ -2,7 +2,7 @@
 
 from functools import partial
 
-from frames import asbool, aslist
+from frame_obj import asbool, aslist
 
 
 
@@ -278,7 +278,7 @@ if __name__ == '__main__':
     import sqlite3_sql as sql_gen_module
     import frames
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Generate DDL")
     parser.add_argument('command')
     parser.add_argument('frame_label')
     parser.add_argument('versions', nargs='+')

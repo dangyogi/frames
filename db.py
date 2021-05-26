@@ -327,7 +327,7 @@ class cursor:
         r'''Returns in iterable of the column values.
         '''
         self.select(table_name, column, **where)
-        ans = (column for column, in self)
+        ans = (row[column] for row in self)
         if self.trace:
             ans = tuple(ans)
             print("got", ans)
@@ -338,7 +338,7 @@ class cursor:
 
         No unpacking needed.
         '''
-        value, = self.select_1(table_name, column, **where)
+        value = self.select_1(table_name, column, **where)[column]
         if self.trace:
             print("got", value)
         return value

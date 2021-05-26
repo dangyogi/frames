@@ -1,26 +1,15 @@
 # versions.py
 
+from frames import lookup_frame_id, get_selected_slots
+from frame_obj import frame
 
-def get_version_id(conn, version_name):
-    return conn.select_1_value("Version", "version_id", name=version_name)
 
 
-def get_name(conn, version_id=None):
+def get_version_name(conn, version_id=None):
     if version_id is None:
         version_id = conn.version_id
-    return conn.select_1_value("Version", "name", version_id=version_id)
-
-
-def get_status(conn, version_id=None):
-    if version_id is None:
-        version_id = conn.version_id
-    return conn.select_1_value("Version", "status", version_id=version_id)
-
-
-def is_frozen(conn, version_id=None):
-    if version_id is None:
-        version_id = conn.version_id
-    return get_status(conn, version_id) != 'proposed'
+    with conn.cursor() as cur:
+        return cur.select_1_value("Version", "name", version_id=version_id)
 
 
 def load_yaml(conn, versions):
@@ -140,32 +129,54 @@ def load_delete_versions(conn, names):
     conn.delete('Version', name=names)
 
 
-def dump(conn, name):
-    v = conn.select_1("Version", name=name)
-    print("Version")
-    for f in "version_id,description,status,creation_user,creation_timestamp," \
-               "updated_user,updated_timestamp".split(','):
-        print(f"  {f}:", v[f])
-    print()
-    fields = "required_version_id,creation_user,creation_timestamp"
-    print("Version_requires", fields)
-    with conn.cursor() as cur:
-        cur.select("Version_requires", fields, version_id=v['version_id'])
-        for r in cur:
-            print(f"  {get_name(conn, r['required_version_id'])},",
-                  ', '.join(str(r[f]) for f in fields.split(',')[1:]))
-        print()
-        print("Version_subsets", 
-              sorted(get_name(conn, v) 
-                     for v in cur.select_1_column("Version_subsets",
-                                                  "subset_id",
-                                                  superset_id=v['version_id'])))
-        print()
-        print("Version_supersets", 
-              sorted(get_name(conn, v)
-                     for v in cur.select_1_column("Version_subsets",
-                                                  "superset_id",
-                                                  subset_id=v['version_id'])))
+def dump(conn, name=None, full=False):
+    def dump_row(row):
+        print("Version")
+        fields = "name,version_id,status,description"
+        if full:
+            fields += ",creation_user,creation_timestamp," \
+                       "updated_user,updated_timestamp"
+        for f in fields.split(','):
+            print(f"  {f}:", row[f])
+        if full:
+            print()
+            fields = "required_version_id,creation_user,creation_timestamp"
+            print("Version_requires:")
+            with conn.cursor() as cur:
+                cur.select("Version_requires", fields,
+                           version_id=row['version_id'])
+                empty = True
+                for r in cur:
+                    for f in fields.split(','):
+                        v = r[f]
+                        if f == 'required_version_id':
+                            v = f"{v} ({get_version_name(conn, v)})"
+                        print(f"  {f}: {v}")
+                    print()
+                    empty = False
+                if empty:
+                    print()
+                print("Version_subsets", 
+                      sorted(get_version_name(conn, v) 
+                             for v in cur.select_1_column("Version_subsets",
+                                            "subset_id",
+                                            superset_id=row['version_id'])))
+                print()
+                print("Version_supersets", 
+                      sorted(get_version_name(conn, v)
+                             for v in cur.select_1_column("Version_subsets",
+                                            "superset_id",
+                                            subset_id=row['version_id'])))
+                print()
+    if name is None:
+        print("name is None")
+        conn.select("Version")
+        for row in conn:
+            dump_row(row)
+            print()
+    else:
+        print("name is", name)
+        dump_row(conn.select_1("Version", name=name))
 
 
 class version_obj:
@@ -182,11 +193,12 @@ class version_obj:
         r'''Not designed for nested calls...
         '''
         self.db_conn.__enter__()
-        self.version_id, self.status = self.select_1("Version",
-                                              "version_id, status",
-                                              name=self.version_name)
+        my_row = self.select_1("Version", "version_id, status",
+                               name=self.version_name)
+        self.version_id = my_row['version_id']
+        self.status = my_row['status']
         self.frame_cache = {}  # {id: frame}
-        self.frame_names = {}  # {frame_name: id}
+        self.frame_names = {}  # {frame_name.lower(): id}
         if self.for_update:
             if self.status != 'proposed':
                 raise AssertionError(
@@ -222,7 +234,7 @@ class version_obj:
         
         `frame_label` may be either an id (int or str), or frame_name.
 
-        `frame_label` may (optionally) start with '$'.
+        A str `frame_label` may (optionally) start with '$'.
         '''
         if isinstance(frame_label, int):
             return frame_label
@@ -234,24 +246,44 @@ class version_obj:
         return self.lookup_id(frame_label)
 
     def lookup_id(self, frame_name):
-        r'''Raises NameError if `frame_name` not found.
+        r'''Returns frame_id of frame_name.
+
+        Raises NameError if `frame_name` not found.
         '''
         if frame_name is None:
             raise ValueError(f"Frame_name must not be None")
 
-        if frame_name not in self.frame_names:
+        fn_lower = frame_name.lower()
+        if fn_lower not in self.frame_names:
             try:
-                self.frame_names[frame_name] = \
-                  self.select_1_value('Frame', 'frame_id', name=frame_name)
+                self.frame_names[fn_lower] = lookup_frame_id(self, frame_name)
             except AssertionError:
                 raise NameError(f"Frame {frame_name!r} not found") from None
-        return self.frame_names[frame_name]
+        return self.frame_names[fn_lower]
 
     def get_frame(self, frame_label):
         frame_id = self.get_frame_id(frame_label)
         if frame_id not in self.frame_cache:
-            self.frame_cache[frame_id] = self.load_frame(frame_id)
+            self.frame_cache[frame_id] = self.read_frame(frame_id)
         return self.frame_cache[frame_id]
+
+    def read_frame(self, frame_id):
+        r'''Returns a list of Frame_slot rows.
+
+        Ordered by <slot_>name, slot_list_order.
+        '''
+        return frame.from_raw_data(self, frame_id,
+                                   get_selected_slots(self, frame_id, None))
+
+    def lookup_frame_name(self, frame_id):
+        r'''Returns frame_name of frame_id.
+
+        Returns None if frame_id has no frame_name.
+        '''
+        try:
+            return self.select_1_value('Frame', 'name', frame_id=frame_id)
+        except AssertionError:
+            return None
 
 
 
@@ -259,11 +291,13 @@ if __name__ == "__main__":
     import argparse
     import frames_db
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Dump version")
     parser.add_argument("--database", default="frames.db")
-    parser.add_argument("version_name")
+    parser.add_argument("--full", action="store_true", default=False)
+    parser.add_argument("version_name", nargs='?', default=None)
     args = parser.parse_args()
 
     db = frames_db.sqlite3_db()
     with db.connect(args.database) as conn:
-        dump(conn, args.version_name)
+        dump(conn, args.version_name, args.full)
+

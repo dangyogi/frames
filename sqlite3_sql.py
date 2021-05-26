@@ -1,6 +1,7 @@
 # sqlite3_sql.py
 
-from frames import asbool, aslist, sqlite3_conn as get_conn
+from frame_obj import asbool, aslist
+from frames_db import sqlite3_db as get_db
 
 
 
